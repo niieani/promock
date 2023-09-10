@@ -104,85 +104,9 @@ impl VisitMut for TransformVisitor {
     // Implement necessary visit_mut_* methods for actual custom transform.
     // A comprehensive list of possible visitor methods can be found here:
     // https://rustdoc.swc.rs/swc_ecma_visit/trait.VisitMut.html
-    // fn visit_mut_module_item(&mut self, item: &mut ModuleItem) {
-    //     match item {
-    //         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => match &mut export.decl {
-    //             Decl::Var(var_decl) if var_decl.kind == VarDeclKind::Const => {
-    //                 for decl in &mut var_decl.decls {
-    //                     if let Some(init) = &mut decl.init {
-    //                         self.mockify_used = true;
-    //                         *init = Box::new(wrap_with_mockify(decl.span, *(*init).take()));
-    //                     }
-    //                 }
-    //             }
-    //             Decl::Fn(fn_decl) => {
-    //                 self.mockify_used = true;
-    //                 let fn_expr = transform_fn_decl_to_fn_expr(&fn_decl);
-    //                 let wrapped_expr = wrap_with_mockify(fn_decl.function.span, fn_expr);
-    //                 let decl = Decl::Var(Box::new(VarDecl {
-    //                     span: fn_decl.function.span,
-    //                     kind: VarDeclKind::Const,
-    //                     declare: false,
-    //                     decls: vec![VarDeclarator {
-    //                         span: fn_decl.function.span,
-    //                         name: Pat::Ident(BindingIdent {
-    //                             id: fn_decl.ident.clone(),
-    //                             type_ann: None,
-    //                         }),
-    //                         init: Some(Box::new(wrapped_expr)),
-    //                         definite: false,
-    //                     }],
-    //                 }));
-    //                 *item = ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-    //                     span: export.span,
-    //                     decl,
-    //                 }));
-    //             }
-    //             _ => {}
-    //         },
-    //         ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export)) => {
-    //             self.mockify_used = true;
-    //             *export.expr = wrap_with_mockify(export.span, *export.expr.clone());
-    //         }
-
-    //         // Handle default exported function declarations
-    //         ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultDecl(export)) => match &export.decl {
-    //             DefaultDecl::Fn(fn_expr) => {
-    //                 self.mockify_used = true;
-    //                 let wrapped_expr =
-    //                     wrap_with_mockify(fn_expr.function.span, Expr::Fn(fn_expr.clone()));
-
-    //                 // Replace the exported default function declaration with a wrapped expression
-    //                 *item =
-    //                     ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
-    //                         span: export.span,
-    //                         expr: Box::new(wrapped_expr),
-    //                     }));
-    //             }
-    //             DefaultDecl::Class(class_expr) => {
-    //                 self.mockify_used = true;
-    //                 let wrapped_expr =
-    //                     wrap_with_mockify(class_expr.class.span, Expr::Class(class_expr.clone()));
-
-    //                 // Replace the exported default class declaration with a wrapped expression
-    //                 *item =
-    //                     ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
-    //                         span: export.span,
-    //                         expr: Box::new(wrapped_expr),
-    //                     }));
-    //             }
-    //             _ => {}
-    //         },
-    //         _ => item.visit_mut_children_with(self),
-    //     }
-    // }
-
-    fn visit_mut_module_decl(&mut self, item: &mut ModuleDecl) {
-        if self.do_not_mockify {
-            return;
-        }
+    fn visit_mut_module_item(&mut self, item: &mut ModuleItem) {
         match item {
-            ModuleDecl::ExportDecl(export) => match &mut export.decl {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => match &mut export.decl {
                 Decl::Var(var_decl) if var_decl.kind == VarDeclKind::Const => {
                     for decl in &mut var_decl.decls {
                         if let Some(init) = &mut decl.init {
@@ -209,13 +133,22 @@ impl VisitMut for TransformVisitor {
                             definite: false,
                         }],
                     }));
-                    *item = ModuleDecl::ExportDecl(ExportDecl {
+                    *item = ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
                         span: export.span,
                         decl,
-                    });
+                    }));
                 }
                 _ => {}
             },
+            _ => item.visit_mut_children_with(self),
+        }
+    }
+
+    fn visit_mut_module_decl(&mut self, item: &mut ModuleDecl) {
+        if self.do_not_mockify {
+            return;
+        }
+        match item {
             ModuleDecl::ExportDefaultExpr(export) => {
                 self.mockify_used = true;
                 *export.expr = wrap_with_mockify(export.span, *export.expr.clone());
@@ -255,7 +188,7 @@ impl VisitMut for TransformVisitor {
 
                     self.added.push(ModuleItem::Stmt(original_stmt));
 
-                    let wrapped_expr = wrap_with_mockify(fn_expr.function.span, Expr::Ident(ident));
+                    let wrapped_expr = wrap_with_mockify(DUMMY_SP, Expr::Ident(ident));
 
                     // Replace the exported default function declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -294,7 +227,7 @@ impl VisitMut for TransformVisitor {
 
                     self.added.push(ModuleItem::Stmt(original_stmt));
 
-                    let wrapped_expr = wrap_with_mockify(class_expr.class.span, Expr::Ident(ident));
+                    let wrapped_expr = wrap_with_mockify(DUMMY_SP, Expr::Ident(ident));
 
                     // Replace the exported default class declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
