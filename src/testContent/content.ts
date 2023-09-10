@@ -8,6 +8,10 @@ export default class Example extends Set<string> {
   b = 200;
 }
 
-export const fn = () => 100;
+export const lambda = () => 100;
+
+export function fns() {
+  return 100;
+}
 
 export const instance = new Example();

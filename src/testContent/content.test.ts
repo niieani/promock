@@ -1,4 +1,4 @@
-import MockClass, { example, fn, instance } from "./content";
+import MockClass, { example, lambda, instance } from "./content";
 import defaultFn from "./defaultFn";
 import { isMockified, override, partialOverride, restore } from "../mockify";
 import { afterEach, expect, describe, it } from "@jest/globals";
@@ -7,7 +7,7 @@ describe("validate", () => {
   afterEach(() => {
     restore(example);
     restore(MockClass);
-    restore(fn);
+    restore(lambda);
     restore(defaultFn);
   });
 
@@ -57,19 +57,19 @@ describe("validate", () => {
   });
 
   it("should be mockable with exported function", () => {
-    expect(fn()).toBe(100);
-    override(fn, () => 200);
-    expect(fn()).toBe(200);
-    restore(fn);
-    expect(fn()).toBe(100);
+    expect(lambda()).toBe(100);
+    override(lambda, () => 200);
+    expect(lambda()).toBe(200);
+    restore(lambda);
+    expect(lambda()).toBe(100);
   });
 
   it("should be mockable with default export function", () => {
     expect(defaultFn()).toBe(100);
     override(defaultFn, () => 200);
     expect(defaultFn()).toBe(200);
-    restore(fn);
-    expect(fn()).toBe(100);
+    restore(lambda);
+    expect(lambda()).toBe(100);
   });
 
   it("should be mockable with class instance", () => {
