@@ -13,6 +13,7 @@ const sources = {
 describe("transpile", () => {
   it("should transpile", async () => {
     const result = await swc.transform(sources.content, {
+      filename: path.join(__dirname, "testContent", "content.ts"),
       jsc: {
         target: "es2022",
         parser: {
@@ -32,7 +33,7 @@ describe("transpile", () => {
       },
     });
     expect(result.code).toMatchInlineSnapshot(`
-"import { mockify as mockify } from "mockify";
+"import { mockify as mockify } from "promock";
 class Example extends Set {
     a = 100;
     b = 200;

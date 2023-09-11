@@ -17,7 +17,10 @@ use swc_core::{
         transforms::testing::test,
         visit::{as_folder, FoldWith, VisitMut, VisitMutWith},
     },
-    plugin::{plugin_transform, proxies::TransformPluginProgramMetadata},
+    plugin::{
+        metadata::TransformPluginMetadataContextKind, plugin_transform,
+        proxies::TransformPluginProgramMetadata,
+    },
 };
 #[macro_use]
 extern crate lazy_static;
@@ -460,45 +463,42 @@ impl VisitMut for TransformVisitor {
 
 #[plugin_transform]
 pub fn process_transform(program: Program, metadata: TransformPluginProgramMetadata) -> Program {
-    // TODO: running metadata.get_transform_plugin_config() here will cause a panic,
-    // so currently we cannot use config
-    // let config: Config = serde_json::from_str(
-    //     &metadata
-    //         .get_transform_plugin_config()
-    //         .expect("failed to get plugin config for swc-plugin-mockify"),
-    // )
-    // .expect("failed to parse plugin config");
+    let config: Config = serde_json::from_str(
+        &metadata
+            .get_transform_plugin_config()
+            .expect("failed to get plugin config for swc-plugin-mockify"),
+    )
+    .expect("failed to parse plugin config");
 
-    // let file_name = metadata
-    //     .get_context(&TransformPluginMetadataContextKind::Filename)
-    //     .expect("failed to get filename");
-    // let relative_path = relative_posix_path(&config.base_path, &file_name);
+    let file_name = metadata
+        .get_context(&TransformPluginMetadataContextKind::Filename)
+        .expect("failed to get filename");
+    let relative_path = relative_posix_path(&config.base_path, &file_name);
 
-    // // If include_paths is defined, only include files that match the regex
-    // if let Some(include_paths) = &config.include_paths {
-    //     let mut include_file = false;
-    //     for include_path in include_paths {
-    //         if include_path.is_match(&relative_path) {
-    //             include_file = true;
-    //             break;
-    //         }
-    //     }
-    //     if !include_file {
-    //         return program;
-    //     }
-    // }
+    // If include_paths is defined, only include files that match the regex
+    if let Some(include_paths) = &config.include_paths {
+        let mut include_file = false;
+        for include_path in include_paths {
+            if include_path.is_match(&relative_path) {
+                include_file = true;
+                break;
+            }
+        }
+        if !include_file {
+            return program;
+        }
+    }
 
-    // // If exclude_paths is defined, exclude files that match the regex
-    // if let Some(exclude_paths) = &config.exclude_paths {
-    //     for exclude_path in exclude_paths {
-    //         if exclude_path.is_match(&relative_path) {
-    //             return program;
-    //         }
-    //     }
-    // }
+    // If exclude_paths is defined, exclude files that match the regex
+    if let Some(exclude_paths) = &config.exclude_paths {
+        for exclude_path in exclude_paths {
+            if exclude_path.is_match(&relative_path) {
+                return program;
+            }
+        }
+    }
 
-    // program.fold_with(&mut as_folder(TransformVisitor::new(Some(config))))
-    program.fold_with(&mut as_folder(TransformVisitor::new(None)))
+    program.fold_with(&mut as_folder(TransformVisitor::new(Some(config))))
 }
 
 // Testing exported const
@@ -758,6 +758,15 @@ test!(
 fn relative_posix_path(base_path: &str, filename: &str) -> String {
     let normalized_base_path = convert_path_to_posix(base_path);
     let normalized_filename = convert_path_to_posix(filename);
+
+    // if filename is empty, return empty string
+    if normalized_filename.is_empty() {
+        return "".into();
+    }
+    if normalized_base_path.is_empty() {
+        return "".into();
+    }
+
     let relative_filename = diff_paths(normalized_filename, normalized_base_path)
         .expect("Could not create relative path");
     let path_parts = relative_filename

@@ -3,7 +3,7 @@
 module.exports = {
   rootDir: __dirname,
   moduleNameMapper: {
-    mockify$: "<rootDir>/src/mockify.ts",
+    promock$: "<rootDir>/src/mockify.ts",
   },
   transform: {
     ".+\\.([tj]sx?)$": [
