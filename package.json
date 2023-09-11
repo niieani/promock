@@ -10,7 +10,8 @@
   "main": "target/wasm32-wasi/release/swc_mockify.wasm",
   "scripts": {
     "build": "cargo build-wasi --release",
-    "prepublishOnly": "yarn build"
+    "prepublishOnly": "yarn build",
+    "test": "jest --no-cache"
   },
   "files": [],
   "preferUnplugged": true,

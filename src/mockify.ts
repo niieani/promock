@@ -4,7 +4,9 @@ const partial = Symbol("partial");
 const defaultImplementation = Symbol("defaultImplementation");
 
 export const mockify = <T extends object>(obj: T): T => {
-  if (!obj) return obj;
+  if (!obj || (typeof obj !== "function" && typeof obj !== "object")) {
+    return obj;
+  }
   // previously mockified
   if (defaultImplementation in obj) return obj;
 

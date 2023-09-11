@@ -6,8 +6,6 @@ module.exports = {
     mockify$: "<rootDir>/src/mockify.ts",
   },
   transform: {
-    // "mockify\\.ts$": ["@swc/jest"],
-    // ^(?!.*mockify\\.ts$)
     ".+\\.([tj]sx?)$": [
       "@swc/jest",
       {
@@ -18,10 +16,7 @@ module.exports = {
                 require.resolve(
                   "./target/wasm32-wasi/release/swc_mockify.wasm",
                 ),
-                {
-                  // basePath: __dirname,
-                  // displayName: true,
-                },
+                { basePath: __dirname },
               ],
             ],
           },

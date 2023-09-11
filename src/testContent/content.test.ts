@@ -1,4 +1,10 @@
-import MockClass, { example, lambda, instance } from "./content";
+import MockClass, {
+  example,
+  lambda,
+  instance,
+  renamedObjExport,
+  expression,
+} from "./content";
 import defaultFn from "./defaultFn";
 import { isMockified, override, partialOverride, restore } from "../mockify";
 import { afterEach, expect, describe, it } from "@jest/globals";
@@ -78,5 +84,17 @@ describe("validate", () => {
     expect(instance.a).toBe(200);
     restore(instance);
     expect(instance.a).toBe(100);
+  });
+
+  it("should be mockable with renamed export", () => {
+    expect(renamedObjExport.a).toBe(100);
+    override(renamedObjExport, { ...renamedObjExport, a: 200 });
+    expect(renamedObjExport.a).toBe(200);
+    restore(renamedObjExport);
+    expect(renamedObjExport.a).toBe(100);
+  });
+
+  it("ignores expressions", () => {
+    expect(expression).toBe(400);
   });
 });

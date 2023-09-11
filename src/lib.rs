@@ -8,25 +8,22 @@ use swc_core::{
     ecma::{
         ast::{
             BindingIdent, CallExpr, Callee, ClassDecl, Decl, DefaultDecl, ExportDefaultExpr,
-            ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt, FnDecl, FnExpr,
-            Function, Ident, ImportDecl, ImportNamedSpecifier, ImportSpecifier, Lit, Module,
-            ModuleDecl, ModuleExportName, ModuleItem, NamedExport, Pat, Program, Stmt, Str,
-            VarDecl, VarDeclKind, VarDeclarator,
+            ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt, FnDecl, Ident,
+            ImportDecl, ImportNamedSpecifier, ImportSpecifier, Lit, Module, ModuleDecl,
+            ModuleExportName, ModuleItem, NamedExport, Pat, Program, Stmt, Str, VarDecl,
+            VarDeclKind, VarDeclarator,
         },
         atoms::JsWord,
         transforms::testing::test,
         visit::{as_folder, FoldWith, VisitMut, VisitMutWith},
     },
-    plugin::{
-        metadata::TransformPluginMetadataContextKind, plugin_transform,
-        proxies::TransformPluginProgramMetadata,
-    },
+    plugin::{plugin_transform, proxies::TransformPluginProgramMetadata},
 };
 #[macro_use]
 extern crate lazy_static;
 
 /// Static plugin configuration.
-#[derive(Default, Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -37,8 +34,8 @@ pub struct Config {
     #[serde(default = "default_import_as")]
     pub import_as: String,
 
-    #[serde(default = "default_import_name")]
-    pub import_name: String,
+    #[serde(default = "default_export_name")]
+    pub export_name: String,
 
     /// The base directory to use for relative paths.
     #[serde()]
@@ -62,13 +59,12 @@ fn default_import_as() -> String {
     "mockify".into()
 }
 fn default_import_from() -> String {
-    "mockify".into()
+    "promock".into()
 }
-fn default_import_name() -> String {
+fn default_export_name() -> String {
     "mockify".into()
 }
 
-#[derive(Default)]
 pub struct TransformVisitor {
     config: Config,
     mockify_used: bool, // Add a flag to know if mockify was used
@@ -79,37 +75,34 @@ pub struct TransformVisitor {
 }
 
 impl TransformVisitor {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Option<Config>) -> Self {
         Self {
-            config,
-            ..Default::default()
+            config: match config {
+                Some(config) => config,
+                None => Config {
+                    import_from: default_import_from(),
+                    import_as: default_import_as(),
+                    export_name: default_export_name(),
+                    base_path: ".".into(),
+                    include_paths: None,
+                    exclude_paths: None,
+                },
+            },
+            added_to_bottom_of_file: vec![],
+            added_to_top_of_file: vec![],
+            mockify_used: false,
+            do_not_mockify: false,
+            mockified_identifiers: HashMap::new(),
         }
     }
 }
 
-fn transform_fn_decl_to_fn_expr(fn_decl: &FnDecl) -> Expr {
-    let function_expr = Function {
-        is_generator: fn_decl.function.is_generator,
-        is_async: fn_decl.function.is_async,
-        params: fn_decl.function.params.clone(),
-        body: Some(fn_decl.function.body.as_ref().unwrap().clone()),
-        type_params: fn_decl.function.type_params.clone(),
-        return_type: fn_decl.function.return_type.clone(),
-        decorators: fn_decl.function.decorators.clone(),
-        span: fn_decl.function.span,
-    };
-    Expr::Fn(FnExpr {
-        ident: Some(fn_decl.ident.clone()),
-        function: Box::new(function_expr),
-    })
-}
-
-fn wrap_with_mockify(span: Span, expr: Expr) -> Expr {
+fn wrap_with_mockify(span: Span, expr: Expr, config: Config) -> Expr {
     Expr::Call(CallExpr {
         span,
         callee: Callee::Expr(Box::new(Expr::Ident(Ident {
-            span,
-            sym: "mockify".into(),
+            span: DUMMY_SP,
+            sym: config.import_as.clone().into(),
             optional: false,
         }))),
         args: vec![ExprOrSpread {
@@ -131,20 +124,21 @@ impl VisitMut for TransformVisitor {
             return;
         }
 
+        let import_config = self.config.clone();
         // If mockify was used, prepend the import statement
         let mockify_import = ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
             span: DUMMY_SP,
             specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
                 span: DUMMY_SP,
-                local: Ident::new("mockify".into(), DUMMY_SP),
+                local: Ident::new(import_config.import_as.clone().into(), DUMMY_SP),
                 imported: Some(ModuleExportName::Ident(Ident::new(
-                    "mockify".into(),
+                    import_config.export_name.into(),
                     DUMMY_SP,
                 ))),
                 is_type_only: false,
             })],
             src: Box::new(Str {
-                value: "mockify".into(),
+                value: import_config.import_from.into(),
                 span: DUMMY_SP,
                 raw: None,
             }),
@@ -186,33 +180,16 @@ impl VisitMut for TransformVisitor {
                     for decl in &mut var_decl.decls {
                         if let Some(init) = &mut decl.init {
                             self.mockify_used = true;
-                            *init = Box::new(wrap_with_mockify(decl.span, *(*init).take()));
+                            *init = Box::new(wrap_with_mockify(
+                                decl.span,
+                                *(*init).take(),
+                                self.config.clone(),
+                            ));
                         }
                     }
                 }
                 Decl::Fn(fn_decl) => {
                     self.mockify_used = true;
-                    // let fn_expr = transform_fn_decl_to_fn_expr(&fn_decl);
-                    // let wrapped_expr = wrap_with_mockify(fn_decl.function.span, fn_expr);
-                    // let decl = Decl::Var(Box::new(VarDecl {
-                    //     span: fn_decl.function.span,
-                    //     kind: VarDeclKind::Const,
-                    //     declare: false,
-                    //     decls: vec![VarDeclarator {
-                    //         span: fn_decl.function.span,
-                    //         name: Pat::Ident(BindingIdent {
-                    //             id: fn_decl.ident.clone(),
-                    //             type_ann: None,
-                    //         }),
-                    //         init: Some(Box::new(wrapped_expr)),
-                    //         definite: false,
-                    //     }],
-                    // }));
-                    // *item = ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-                    //     span: export.span,
-                    //     decl,
-                    // }));
-
                     let orig_ident = fn_decl.ident.clone();
                     let export_ident = fn_decl.ident.clone();
                     let mockified_ident = Ident::new(
@@ -224,8 +201,11 @@ impl VisitMut for TransformVisitor {
                     let original_fn_decl = ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl.clone())));
 
                     // Create mockified version
-                    let mockified_fn =
-                        wrap_with_mockify(fn_decl.function.span, Expr::Ident(orig_ident));
+                    let mockified_fn = wrap_with_mockify(
+                        fn_decl.function.span,
+                        Expr::Ident(orig_ident),
+                        self.config.clone(),
+                    );
                     let mockified_fn_decl = VarDeclarator {
                         span: fn_decl.function.span,
                         name: Pat::Ident(BindingIdent {
@@ -293,6 +273,7 @@ impl VisitMut for TransformVisitor {
                         ExportSpecifier::Named(named_specifier) => {
                             // The original identifier being exported
                             let original_ident = &named_specifier.orig;
+                            let original_export_as = &named_specifier.exported;
 
                             let original_ident_sym = match original_ident {
                                 ModuleExportName::Ident(ident) => ident.sym.clone(),
@@ -324,6 +305,7 @@ impl VisitMut for TransformVisitor {
                                                 original_ident_sym.clone(),
                                                 DUMMY_SP,
                                             )),
+                                            self.config.clone(),
                                         ))),
                                         definite: false,
                                     }],
@@ -342,7 +324,16 @@ impl VisitMut for TransformVisitor {
                             new_specifiers.push(ExportSpecifier::Named(ExportNamedSpecifier {
                                 span: DUMMY_SP,
                                 orig: mockified_ident.into(),
-                                exported: named_specifier.exported.clone(), // Some(original_ident.clone()),
+                                exported: match original_export_as {
+                                    None => Some(original_ident.clone()),
+                                    _ => original_export_as.clone(),
+                                    // Some(ModuleExportName::Ident(ident)) => {
+                                    //     Some(ModuleExportName::Ident(ident.clone()))
+                                    // }
+                                    // Some(ModuleExportName::Str(str)) => {
+                                    //     Some(ModuleExportName::Str(str.clone()))
+                                    // }
+                                },
                                 is_type_only: false,
                             }));
                         }
@@ -366,10 +357,12 @@ impl VisitMut for TransformVisitor {
 
             ModuleDecl::ExportDefaultExpr(export) => {
                 self.mockify_used = true;
-                *export.expr = wrap_with_mockify(export.span, *export.expr.clone());
+                *export.expr =
+                    wrap_with_mockify(export.span, *export.expr.clone(), self.config.clone());
             }
 
-            // TODO: these two, and the 'fn' above are broken, because they remove the identifier from scope
+            // we cannot simply replace the function with a const,
+            // because that would remove the identifier from scope
             // which may cause a ReferenceError in runtime
             // we need to drop the 'export default' from the original declaration,
             // then add another statement with: 'export default mockify($identifier)'
@@ -380,8 +373,11 @@ impl VisitMut for TransformVisitor {
                     // handle case where function ident doesn't exist
                     // in which case we can simply wrap the expression directly
                     if fn_expr.ident.is_none() {
-                        let wrapped_expr =
-                            wrap_with_mockify(fn_expr.function.span, Expr::Fn(fn_expr.clone()));
+                        let wrapped_expr = wrap_with_mockify(
+                            fn_expr.function.span,
+                            Expr::Fn(fn_expr.clone()),
+                            self.config.clone(),
+                        );
 
                         // Replace the exported default function declaration with a wrapped expression
                         *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -404,7 +400,8 @@ impl VisitMut for TransformVisitor {
                     self.added_to_top_of_file
                         .push(ModuleItem::Stmt(original_stmt));
 
-                    let wrapped_expr = wrap_with_mockify(DUMMY_SP, Expr::Ident(ident));
+                    let wrapped_expr =
+                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone());
 
                     // Replace the exported default function declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -421,6 +418,7 @@ impl VisitMut for TransformVisitor {
                         let wrapped_expr = wrap_with_mockify(
                             class_expr.class.span,
                             Expr::Class(class_expr.clone()),
+                            self.config.clone(),
                         );
 
                         // Replace the exported default class declaration with a wrapped expression
@@ -444,7 +442,8 @@ impl VisitMut for TransformVisitor {
                     self.added_to_top_of_file
                         .push(ModuleItem::Stmt(original_stmt));
 
-                    let wrapped_expr = wrap_with_mockify(DUMMY_SP, Expr::Ident(ident));
+                    let wrapped_expr =
+                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone());
 
                     // Replace the exported default class declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -461,48 +460,51 @@ impl VisitMut for TransformVisitor {
 
 #[plugin_transform]
 pub fn process_transform(program: Program, metadata: TransformPluginProgramMetadata) -> Program {
-    let config: Config = serde_json::from_str(
-        &metadata
-            .get_transform_plugin_config()
-            .expect("failed to get plugin config for swc-plugin-css-variable"),
-    )
-    .expect("failed to parse plugin config");
+    // TODO: running metadata.get_transform_plugin_config() here will cause a panic,
+    // so currently we cannot use config
+    // let config: Config = serde_json::from_str(
+    //     &metadata
+    //         .get_transform_plugin_config()
+    //         .expect("failed to get plugin config for swc-plugin-mockify"),
+    // )
+    // .expect("failed to parse plugin config");
 
-    let file_name = metadata
-        .get_context(&TransformPluginMetadataContextKind::Filename)
-        .expect("failed to get filename");
-    let relative_path = relative_posix_path(&config.base_path, &file_name);
+    // let file_name = metadata
+    //     .get_context(&TransformPluginMetadataContextKind::Filename)
+    //     .expect("failed to get filename");
+    // let relative_path = relative_posix_path(&config.base_path, &file_name);
 
-    // If include_paths is defined, only include files that match the regex
-    if let Some(include_paths) = &config.include_paths {
-        let mut include_file = false;
-        for include_path in include_paths {
-            if include_path.is_match(&relative_path) {
-                include_file = true;
-                break;
-            }
-        }
-        if !include_file {
-            return program;
-        }
-    }
+    // // If include_paths is defined, only include files that match the regex
+    // if let Some(include_paths) = &config.include_paths {
+    //     let mut include_file = false;
+    //     for include_path in include_paths {
+    //         if include_path.is_match(&relative_path) {
+    //             include_file = true;
+    //             break;
+    //         }
+    //     }
+    //     if !include_file {
+    //         return program;
+    //     }
+    // }
 
-    // If exclude_paths is defined, exclude files that match the regex
-    if let Some(exclude_paths) = &config.exclude_paths {
-        for exclude_path in exclude_paths {
-            if exclude_path.is_match(&relative_path) {
-                return program;
-            }
-        }
-    }
+    // // If exclude_paths is defined, exclude files that match the regex
+    // if let Some(exclude_paths) = &config.exclude_paths {
+    //     for exclude_path in exclude_paths {
+    //         if exclude_path.is_match(&relative_path) {
+    //             return program;
+    //         }
+    //     }
+    // }
 
-    program.fold_with(&mut as_folder(TransformVisitor::new(config)))
+    // program.fold_with(&mut as_folder(TransformVisitor::new(Some(config))))
+    program.fold_with(&mut as_folder(TransformVisitor::new(None)))
 }
 
 // Testing exported const
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     export_const,
     // Input codes
     r#"export const example = {};"#,
@@ -526,7 +528,7 @@ test!(
 // export { _mockified_$exampleFn as $exampleFn };
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     export_function,
     // Input codes
     r#"export function example() { return {}; }"#,
@@ -540,7 +542,7 @@ test!(
 // Testing default exports
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     default_export,
     // Input codes
     r#"export default {};"#,
@@ -552,7 +554,7 @@ test!(
 // Testing default exported functions
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     default_export_function,
     // Input codes
     r#"export default function example() { return {}; }"#,
@@ -565,7 +567,7 @@ test!(
 // Testing default exported classes
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     default_export_class,
     // Input codes
     r#"export default class Example {}"#,
@@ -577,7 +579,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     separate_export_declaration,
     // Input codes
     r#"const A = () => {};
@@ -595,7 +597,24 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
+    separate_export_declaration_with_rename,
+    // Input codes
+    r#"const A = () => {};
+    function B() {}
+    export { A as AA, B as BB };"#,
+    // Output codes after transformed with plugin (assuming A and B are transformed)
+    r#"import { mockify as mockify } from "mockify";
+    const A = () => {};
+    function B() {}
+    export { _mockified_A as AA, _mockified_B as BB };
+    const _mockified_A = mockify(A);
+    const _mockified_B = mockify(B);
+    "#
+);
+test!(
+    Default::default(),
+    |_| as_folder(TransformVisitor::new(None)),
     export_imported_values,
     // Input codes
     r#"import { A } from 'module';
@@ -610,7 +629,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     complex_object_exports,
     // Input codes
     r#"export const nested = { example: {} };"#,
@@ -622,7 +641,7 @@ test!(
 // Do not add imports if mockify is not used
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     no_added_imports,
     // Input codes
     r#"class Example {}"#,
@@ -633,7 +652,7 @@ test!(
 // Does not change code if __do_not_mockify__ is used
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     do_not_mockify,
     // Input codes
     r#""__do_not_mockify__";
@@ -645,7 +664,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     mixed_exports,
     // Input codes
     r#"export default function() {}
@@ -658,7 +677,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     async_function,
     // Input codes
     r#"export async function asyncFunc() { return Promise.resolve(); }"#,
@@ -671,7 +690,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     generator_function,
     // Input codes
     r#"export function* genFunc() { yield 1; }"#,
@@ -684,7 +703,7 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     dynamic_import,
     // Input codes
     r#"const module = import('./module');"#,
@@ -694,12 +713,31 @@ test!(
 
 test!(
     Default::default(),
-    |_| as_folder(TransformVisitor::default()),
+    |_| as_folder(TransformVisitor::new(None)),
     re_export,
     // Input codes
     r#"export { example } from 'another-module';"#,
     // Output codes after transformed with plugin (assuming no transformation)
     r#"export { example } from 'another-module';"#
+);
+
+// Testing exported const
+test!(
+    Default::default(),
+    |_| as_folder(TransformVisitor::new(Some(Config {
+        import_from: "custom-mockify".into(),
+        base_path: ".".into(),
+        export_name: "customMockify".into(),
+        import_as: "___customMockify".into(),
+        exclude_paths: None,
+        include_paths: None,
+    }))),
+    custom_config,
+    // Input codes
+    r#"export const example = {};"#,
+    // Output codes after transformed with plugin
+    r#"import { customMockify as ___customMockify } from "custom-mockify";
+    export const example = ___customMockify({});"#
 );
 
 // ------- //
