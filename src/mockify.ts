@@ -1,36 +1,51 @@
 "use __do_not_mockify__";
+
 const dispose: typeof Symbol.dispose =
   Symbol.dispose ?? Symbol("Symbol.dispose");
 
-const implementation = Symbol("implementation");
-const partial = Symbol("partial");
-const propertyDescriptorSource = Symbol("propertyDescriptorSource");
-const defaultImplementation = Symbol("defaultImplementation");
+const configuration = Symbol("configuration");
+
+type Configuration<T> = {
+  implementation?: T | Partial<T>;
+  partial: boolean;
+  propertyDescriptorSource: "default" | "override";
+  readonly defaultImplementation: T;
+};
 
 export const mockify = <T extends object>(obj: T): T => {
   if (!obj || (typeof obj !== "function" && typeof obj !== "object")) {
     return obj;
   }
-  // previously mockified
-  if (defaultImplementation in obj) return obj;
 
-  let overridingImplementation: T | undefined;
-  let isPartial = false;
-  let descriptorSource: "default" | "override" = "override";
+  // noop if previously mockified
+  if (isMockified(obj)) return obj;
+
+  const conf: Configuration<T> = {
+    implementation: undefined,
+    partial: false,
+    propertyDescriptorSource: "override",
+    defaultImplementation: obj,
+  };
+
+  // defaultImplementation should be read-only
+  Object.defineProperty(conf, "defaultImplementation", {
+    value: obj,
+    configurable: false,
+    writable: false,
+    enumerable: true,
+  });
+
   return new Proxy(obj, {
     // basic:
     get(target, propertyKey, receiver) {
-      if (propertyKey === defaultImplementation) return obj;
-      if (propertyKey === implementation)
-        return overridingImplementation ?? target;
-      if (propertyKey === partial) return isPartial;
-      if (propertyKey === descriptorSource) return descriptorSource;
-
-      let value = (overridingImplementation as any)?.[propertyKey];
-      let t = overridingImplementation;
+      if (propertyKey === configuration) {
+        return conf;
+      }
+      let value = (conf.implementation as any)?.[propertyKey];
+      let t = conf.implementation;
       if (
-        !overridingImplementation ||
-        (isPartial && typeof value === "undefined")
+        !conf.implementation ||
+        (conf.partial && typeof value === "undefined")
       ) {
         value = (target as any)[propertyKey];
         t = target;
@@ -46,73 +61,58 @@ export const mockify = <T extends object>(obj: T): T => {
       return value;
     },
     has(target, propertyKey) {
-      if (
-        propertyKey === implementation ||
-        propertyKey === defaultImplementation ||
-        propertyKey === partial ||
-        propertyKey === propertyDescriptorSource
-      ) {
+      if (propertyKey === configuration) {
         return true;
       }
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       const value = Reflect.has(t, propertyKey);
-      if (isPartial && overridingImplementation) {
+      if (conf.partial && conf.implementation) {
         return value || Reflect.has(target, propertyKey);
       }
       return value;
     },
     set(target, propertyKey, newValue, receiver) {
-      if (propertyKey === implementation) {
-        overridingImplementation = newValue;
-        return true;
+      if (propertyKey === configuration) {
+        throw new Error(
+          'Overriding the "configuration" property is not allowed. Mutate the configuration object instead.',
+        );
       }
-      if (propertyKey === partial) {
-        isPartial = newValue;
-        return true;
-      }
-      if (propertyKey === propertyDescriptorSource) {
-        descriptorSource = newValue;
-        return true;
-      }
-      if (propertyKey === defaultImplementation) {
-        throw new Error("Cannot override default implementation");
-      }
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.set(
         t,
         propertyKey,
         newValue,
-        overridingImplementation ?? receiver,
+        conf.implementation ?? receiver,
       );
     },
 
     // properties:
     defineProperty(target, propertyKey, attributes) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.defineProperty(t, propertyKey, attributes);
     },
     deleteProperty(target, propertyKey) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.deleteProperty(t, propertyKey);
     },
     getOwnPropertyDescriptor(target, propertyKey) {
       const t =
-        descriptorSource === "override"
-          ? overridingImplementation ?? target
+        conf.propertyDescriptorSource === "override"
+          ? conf.implementation ?? target
           : target;
       const value = Reflect.getOwnPropertyDescriptor(t, propertyKey);
-      if (isPartial && overridingImplementation && t !== target) {
+      if (conf.partial && conf.implementation && t !== target) {
         return value ?? Reflect.getOwnPropertyDescriptor(target, propertyKey);
       }
       return value;
     },
     ownKeys(target) {
       const t =
-        descriptorSource === "override"
-          ? overridingImplementation ?? target
+        conf.propertyDescriptorSource === "override"
+          ? conf.implementation ?? target
           : target;
       const value = Reflect.ownKeys(t);
-      if (isPartial && overridingImplementation && t !== target) {
+      if (conf.partial && conf.implementation && t !== target) {
         return Array.from(new Set([...value, ...Reflect.ownKeys(target)]));
       }
       return value;
@@ -120,7 +120,7 @@ export const mockify = <T extends object>(obj: T): T => {
 
     // function:
     apply(target, thisArg, argArray) {
-      const t = (overridingImplementation ?? target) as (
+      const t = ((conf.implementation as T) ?? target) as (
         ...args: unknown[]
       ) => unknown;
       return Reflect.apply(t, thisArg, argArray);
@@ -128,48 +128,67 @@ export const mockify = <T extends object>(obj: T): T => {
 
     // class/object/prototype:
     construct(target, argArray, newTarget) {
-      const t = (overridingImplementation ?? target) as new (
+      const t = ((conf.implementation as T) ?? target) as new (
         ...args: unknown[]
       ) => object;
 
       return Reflect.construct(t, argArray, newTarget ? t : undefined);
     },
     getPrototypeOf(target) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.getPrototypeOf(t);
     },
     isExtensible(target) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.isExtensible(t);
     },
     preventExtensions(target) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.preventExtensions(t);
     },
     setPrototypeOf(target, v) {
-      const t = overridingImplementation ?? target;
+      const t = conf.implementation ?? target;
       return Reflect.setPrototypeOf(t, v);
     },
   });
 };
 
-export const isMockified = (
-  obj: object | null,
-): obj is {
-  [implementation]?: typeof obj;
-  [propertyDescriptorSource]: "default" | "override";
-  [defaultImplementation]: typeof obj;
-  [partial]: boolean;
-} => Boolean(obj && defaultImplementation in obj);
+export const isMockified = <T extends object>(
+  obj: T | null,
+): obj is T & {
+  [configuration]: Configuration<T>;
+} =>
+  Boolean(obj && (obj as { [configuration]: Configuration<T> })[configuration]);
+
+function getMockConfig<T extends object>(
+  obj: T | null,
+  throwIfNotMockified?: true,
+): Configuration<T>;
+function getMockConfig<T extends object>(
+  obj: T | null,
+  throwIfNotMockified: boolean,
+): Configuration<T> | undefined;
+function getMockConfig<T extends object>(
+  obj: T | null,
+  throwIfNotMockified = true,
+): Configuration<T> | undefined {
+  if (isMockified(obj)) return obj[configuration];
+  if (throwIfNotMockified) {
+    throw new Error("Cannot get configuration of non-mockified object");
+  }
+}
 
 const nothingToDispose = { [dispose]() {} };
 
 export const setPropertyDescriptorSource = <T extends object>(
   obj: T,
   source: "default" | "override",
+  throwIfNotMockified = true,
 ) => {
-  if (isMockified(obj)) {
-    obj[propertyDescriptorSource] = source;
+  const config = getMockConfig(obj, throwIfNotMockified);
+
+  if (config) {
+    config.propertyDescriptorSource = source;
   }
 };
 
@@ -183,20 +202,17 @@ export function override<T extends object>(
   replacement: T,
   throwIfNotMockified = true,
 ): { [dispose](): void } {
-  if (isMockified(source)) {
-    correctExtendedClass(replacement, source);
-    source[implementation] = replacement;
-    source[partial] = false;
+  const config = getMockConfig(source, throwIfNotMockified);
+  if (config) {
+    correctExtendedClass(replacement, source, config);
+    config.implementation = replacement;
+    config.partial = false;
 
     return {
-      // support disposing with the `using` keyword
       [dispose]() {
         restore(source);
       },
     };
-  }
-  if (throwIfNotMockified) {
-    throw new Error("Cannot override non-mockified object");
   }
   return nothingToDispose;
 }
@@ -217,46 +233,45 @@ export function partialOverride<T extends object>(
     : Partial<T>,
   throwIfNotMockified = true,
 ): { [dispose](): void } {
-  if (isMockified(source)) {
-    correctExtendedClass(partialReplacement, source);
-    source[implementation] = partialReplacement;
-    source[partial] = true;
+  const config = getMockConfig(source, throwIfNotMockified);
+  if (config) {
+    correctExtendedClass(partialReplacement, source, config);
+    config.implementation = partialReplacement;
+    config.partial = true;
 
     return {
-      // support disposing with the `using` keyword
       [dispose]() {
         restore(source);
       },
     };
   }
-  if (throwIfNotMockified) {
-    throw new Error("Cannot override non-mockified object");
-  }
   return nothingToDispose;
 }
 
-function correctExtendedClass(impl: object, obj: object) {
+function correctExtendedClass(
+  impl: object,
+  obj: object,
+  config: Configuration<object>,
+) {
   const proto = Reflect.getPrototypeOf(impl);
   // correct the extends clause to be of the actual class, not its Proxy
   // to avoid recursive class extension
   if (proto && proto === obj && isMockified(proto)) {
-    Reflect.setPrototypeOf(impl, proto[defaultImplementation]);
+    Reflect.setPrototypeOf(impl, config.defaultImplementation);
   }
 }
 
 export function restore<T extends object>(
-  obj: T,
+  source: T,
   throwIfNotMockified = true,
 ): void {
-  if (isMockified(obj)) {
-    obj[implementation] = undefined;
-    obj[partial] = false;
+  const config = getMockConfig(source, throwIfNotMockified);
+  if (config) {
+    config.implementation = undefined;
+    config.partial = false;
     return;
-  }
-  if (throwIfNotMockified) {
-    throw new Error("Cannot restore non-mockified object");
   }
 }
 
-export const getActual = <T extends object>(obj: T): T =>
-  isMockified(obj) ? (obj[implementation] as T) ?? obj : obj;
+export const getActual = <T extends object>(source: T): T =>
+  getMockConfig(source, false)?.defaultImplementation ?? source;

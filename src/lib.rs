@@ -162,7 +162,7 @@ impl VisitMut for TransformVisitor {
         match &*n.expr {
             Expr::Lit(lit) => {
                 if let Lit::Str(str_lit) = lit {
-                    if str_lit.value.eq("__do_not_mockify__") {
+                    if str_lit.value.eq("use __do_not_mockify__") {
                         self.do_not_mockify = true;
                     }
                 }
@@ -649,16 +649,16 @@ test!(
     r#"class Example {}"#
 );
 
-// Does not change code if __do_not_mockify__ is used
+// Does not change code if "use __do_not_mockify__" is in the file header
 test!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     do_not_mockify,
     // Input codes
-    r#""__do_not_mockify__";
+    r#""use __do_not_mockify__";
     export const example = {};"#,
     // Output codes after transformed with plugin
-    r#""__do_not_mockify__";
+    r#""use __do_not_mockify__";
     export const example = {};"#
 );
 

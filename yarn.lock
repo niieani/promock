@@ -1464,6 +1464,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"bun-types@npm:^1.0.1":
+  version: 1.0.1
+  resolution: "bun-types@npm:1.0.1"
+  checksum: bcf25899c48c66ced17a988789808449595979fdabdb53b9c930adaf379dea66a205e67dfc61b29a695447dc17c9b20458a7b4aafdb27617e3f0ca1bca1f1c7f
+  languageName: node
+  linkType: hard
+
 "cacache@npm:^17.0.0":
   version: 17.1.4
   resolution: "cacache@npm:17.1.4"
@@ -4262,6 +4269,7 @@ __metadata:
     "@swc/cli": "npm:^0.1.62"
     "@swc/core": "npm:^1.3.83"
     "@swc/jest": "npm:^0.2.29"
+    bun-types: "npm:^1.0.1"
     jest: "npm:^29.6.4"
     typescript: "npm:^5.2.2"
   languageName: unknown

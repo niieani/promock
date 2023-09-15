@@ -1,0 +1,3 @@
+- jest transform, with support for chaining
+  - [transformation](https://jestjs.io/docs/code-transformation)
+- support "using" declarations API, by returning with Symbol.dispose from override()

@@ -1,10 +1,35 @@
 # `promock`
 
-`promock` is simple (<200 LOC), innovative tool for mocking exports of objects and functions in ESM. Instead of using the often cumbersome and convoluted methodologies present in existing testing frameworks, `promock` provides a seamless, straightforward, and high-performant alternative.
+`promock` is simple (`<200` LOC) tool for mocking object and function exports of ESM modules (mjs).
+
+Fully automated mocking works with `jest`, `vitest`, `bun test`, and any other testing framework that supports transforming code.
+
+You could also use `promock` manually, as a Dependency Injection tool.
+
+Instead of reading pages of documentation and reconfiguring your testing tools, `promock` provides an easy-to-use alternative.
+
+Here's a basic usage example:
+
+```typescript
+import { override, restore } from "promock";
+import { myObject } from "./example";
+
+override(myObject, { a: 50 });
+expect(myObject.a).toBe(50);
+restore(myObject);
+```
+
+That's all! No awkward require/import mixes, no need to know about module hoisting, or `import()`ing with top-level awaits.
 
 The name `promock` is a portmanteau of "Proxy" and "mock", as it uses JS Proxies to achieve its functionality.
 
-## Why Use `promock`?
+## The problem
+
+Even though ES Modules became ratified in 2015, the most prominent JavaScript testing framework, `jest`, still [doesn't fully support mocking ESM exports](https://github.com/jestjs/jest/issues/9430). Even `vitest`, the hot new testing framework, despite making a lot of progress on the front, still has [open issues](https://github.com/vitest-dev/vitest/issues/3046) related mocking ES modules, and the user experience is far from ideal, requiring the user to know complex APIs, such as [`vi.hoisted`](https://vitest.dev/api/vi.html#vi-hoisted).
+
+This is a major problem for developers, as ESM packages are becoming ubiquitous, with more and more maintainers opting to [only support ESM](https://gist.github.com/sindresorhus/a39789f98801d908bbc7ff3ecc99d99c).
+
+Enter `promock`:
 
 - **Elegant and Intuitive**: Forget about lengthy and complex mocking setups, often requiring you to mix `require`'s and `import`s in your test files, or worry about the order in which dependencies are loaded. `promock` is intuitive and meshes well with modern ES syntax.
 
@@ -19,9 +44,10 @@ The name `promock` is a portmanteau of "Proxy" and "mock", as it uses JS Proxies
 
 While `promock` is powerful, it's essential to understand its limitations:
 
-- **Cannot Override Primitives**: `promock` isn't suitable for mocking primitive values directly.
-- **Cannot Override non-const Variables**: `promock` cannot override variables declared with `let` or `var`.
-- **Does not fully replace the module**: For some unique cases, traditional mocking might offer more granular control.
+- **Cannot mock primitives**: `promock` isn't suitable for mocking primitive values directly.
+- **Cannot mock non-const variables**: `promock` cannot override exports declared with `export let` or `export var`.
+- **Cannot mock internal Node/Bun/Electron modules**: `promock` doesn't mock modules, it mocks individual exports. This means that it cannot override internal modules, such as `fs` or `path`.
+- **Does not fully replace the shape of the module**: For some unique cases, traditional mocking might offer more granular control.
 
 ## Getting Started
 
@@ -36,7 +62,7 @@ First, you'll need to setup `promock` in your project.
 First, import the required functions:
 
 ```typescript
-import { override, partialOverride, restore } from "`promock`";
+import { override, partialOverride, restore } from "promock";
 ```
 
 Then, import any object, function, or class you wish to mock:
@@ -57,7 +83,7 @@ restore(mockedObj);
 
 ### SWC Plugin
 
-`promock` has an SWC plugin. This means that when inside of your tests, it automatically transforms your code and `promock` exports seamlessly.
+`promock` has an SWC plugin that automatically transforms all your code (and optionally its dependencies) to mockify all the exports seamlessly.
 
 For example, a code like:
 
@@ -71,23 +97,25 @@ export const example = {
 Is transformed to:
 
 ```typescript
-import { `promock` } from "`promock`";
-export const example = `promock`({
+import { mockify } from "promock";
+export const example = mockify({
   a: 100,
   b: 200,
 });
 ```
 
-This automation reduces manual intervention and ensures that your mocks are always set up correctly.
+This automation reduces manual intervention and ensures that your exports are always set up correctly.
 
 ## API Reference
 
-- ``promock`(obj: T): T`: Converts an object or function into a mockifiable version. Used internally by the SWC plugin.
+- `isMockified(value: T): boolean`: Checks if the given export is mockified.
 
-- `isMockified(obj: T): boolean`: Checks if the given object is mockified.
+- `override(value: T, impl: T): void`: Completely overrides the mockified export with a new implementation.
 
-- `override(obj: T, impl: T)`: Completely overrides the mockified object with a new implementation.
+- `partialOverride(value: T, impl: Partial<T>): void`: Partially overrides the mockified export, only replacing specified properties or methods.
 
-- `partialOverride(obj: T, impl: Partial<T>)`: Partially overrides the mockified object, only replacing specified properties or methods.
+- `restore(value: T): void`: Restores the mockified export to its original state.
 
-- `restore(obj: T)`: Restores the mockified object to its original state.
+- `getActual(value: T): T`: Restores the mockified export to its original state.
+
+- `mockify(value: T): T`: Converts an object or function into a mockified version. Used internally by the SWC plugin.
