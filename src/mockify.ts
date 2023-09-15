@@ -1,6 +1,10 @@
-"__do_not_mockify__";
+"use __do_not_mockify__";
+const dispose: typeof Symbol.dispose =
+  Symbol.dispose ?? Symbol("Symbol.dispose");
+
 const implementation = Symbol("implementation");
 const partial = Symbol("partial");
+const propertyDescriptorSource = Symbol("propertyDescriptorSource");
 const defaultImplementation = Symbol("defaultImplementation");
 
 export const mockify = <T extends object>(obj: T): T => {
@@ -12,12 +16,15 @@ export const mockify = <T extends object>(obj: T): T => {
 
   let overridingImplementation: T | undefined;
   let isPartial = false;
+  let descriptorSource: "default" | "override" = "override";
   return new Proxy(obj, {
     // basic:
     get(target, propertyKey, receiver) {
       if (propertyKey === defaultImplementation) return obj;
       if (propertyKey === implementation)
         return overridingImplementation ?? target;
+      if (propertyKey === partial) return isPartial;
+      if (propertyKey === descriptorSource) return descriptorSource;
 
       let value = (overridingImplementation as any)?.[propertyKey];
       let t = overridingImplementation;
@@ -42,7 +49,8 @@ export const mockify = <T extends object>(obj: T): T => {
       if (
         propertyKey === implementation ||
         propertyKey === defaultImplementation ||
-        propertyKey === partial
+        propertyKey === partial ||
+        propertyKey === propertyDescriptorSource
       ) {
         return true;
       }
@@ -60,6 +68,10 @@ export const mockify = <T extends object>(obj: T): T => {
       }
       if (propertyKey === partial) {
         isPartial = newValue;
+        return true;
+      }
+      if (propertyKey === propertyDescriptorSource) {
+        descriptorSource = newValue;
         return true;
       }
       if (propertyKey === defaultImplementation) {
@@ -84,17 +96,23 @@ export const mockify = <T extends object>(obj: T): T => {
       return Reflect.deleteProperty(t, propertyKey);
     },
     getOwnPropertyDescriptor(target, propertyKey) {
-      const t = overridingImplementation ?? target;
+      const t =
+        descriptorSource === "override"
+          ? overridingImplementation ?? target
+          : target;
       const value = Reflect.getOwnPropertyDescriptor(t, propertyKey);
-      if (isPartial && overridingImplementation) {
+      if (isPartial && overridingImplementation && t !== target) {
         return value ?? Reflect.getOwnPropertyDescriptor(target, propertyKey);
       }
       return value;
     },
     ownKeys(target) {
-      const t = overridingImplementation ?? target;
+      const t =
+        descriptorSource === "override"
+          ? overridingImplementation ?? target
+          : target;
       const value = Reflect.ownKeys(t);
-      if (isPartial && overridingImplementation) {
+      if (isPartial && overridingImplementation && t !== target) {
         return Array.from(new Set([...value, ...Reflect.ownKeys(target)]));
       }
       return value;
@@ -139,127 +157,106 @@ export const isMockified = (
   obj: object | null,
 ): obj is {
   [implementation]?: typeof obj;
+  [propertyDescriptorSource]: "default" | "override";
   [defaultImplementation]: typeof obj;
   [partial]: boolean;
 } => Boolean(obj && defaultImplementation in obj);
 
-export function override<T extends object>(obj: T, impl: T): void {
+const nothingToDispose = { [dispose]() {} };
+
+export const setPropertyDescriptorSource = <T extends object>(
+  obj: T,
+  source: "default" | "override",
+) => {
   if (isMockified(obj)) {
-    const proto = Reflect.getPrototypeOf(impl);
-    if (proto === obj && isMockified(proto)) {
-      Reflect.setPrototypeOf(impl, proto[defaultImplementation]);
-    }
-    obj[partial] = false;
-    obj[implementation] = impl;
-    return;
+    obj[propertyDescriptorSource] = source;
   }
-  throw new Error("Cannot override non-mockified object");
+};
+
+/**
+ * Override an object/function, replacing it completely with the provided implementation.
+ * This means any existing properties should be provided in the implementation.
+ * Note that this will replace any previous overrides (partial or not).
+ */
+export function override<T extends object>(
+  source: T,
+  replacement: T,
+  throwIfNotMockified = true,
+): { [dispose](): void } {
+  if (isMockified(source)) {
+    correctExtendedClass(replacement, source);
+    source[implementation] = replacement;
+    source[partial] = false;
+
+    return {
+      // support disposing with the `using` keyword
+      [dispose]() {
+        restore(source);
+      },
+    };
+  }
+  if (throwIfNotMockified) {
+    throw new Error("Cannot override non-mockified object");
+  }
+  return nothingToDispose;
 }
 
+/**
+ * Partially override an object, only shadowing the properties that are defined in the implementation.
+ * Note that this will replace any previous overrides (partial or not).
+ * All writes will be done to the implementation, so the original object will not be modified.
+ *
+ * If overriding a class, make sure to have the overriding class extend the original class.
+ */
 export function partialOverride<T extends object>(
-  obj: T,
-  impl: T extends { prototype: unknown } & (new (...args: unknown[]) => unknown)
+  source: T,
+  partialReplacement: T extends { prototype: unknown } & (new (
+    ...args: unknown[]
+  ) => unknown)
     ? { prototype: Partial<T["prototype"]> }
     : Partial<T>,
+  throwIfNotMockified = true,
+): { [dispose](): void } {
+  if (isMockified(source)) {
+    correctExtendedClass(partialReplacement, source);
+    source[implementation] = partialReplacement;
+    source[partial] = true;
+
+    return {
+      // support disposing with the `using` keyword
+      [dispose]() {
+        restore(source);
+      },
+    };
+  }
+  if (throwIfNotMockified) {
+    throw new Error("Cannot override non-mockified object");
+  }
+  return nothingToDispose;
+}
+
+function correctExtendedClass(impl: object, obj: object) {
+  const proto = Reflect.getPrototypeOf(impl);
+  // correct the extends clause to be of the actual class, not its Proxy
+  // to avoid recursive class extension
+  if (proto && proto === obj && isMockified(proto)) {
+    Reflect.setPrototypeOf(impl, proto[defaultImplementation]);
+  }
+}
+
+export function restore<T extends object>(
+  obj: T,
+  throwIfNotMockified = true,
 ): void {
   if (isMockified(obj)) {
-    const proto = Reflect.getPrototypeOf(impl);
-    if (proto === obj && isMockified(proto)) {
-      Reflect.setPrototypeOf(impl, proto[defaultImplementation]);
-    }
-    obj[partial] = true;
-    obj[implementation] = impl;
-    return;
-  }
-  throw new Error("Cannot override non-mockified object");
-}
-
-export function restore<T extends object>(obj: T): void {
-  if (isMockified(obj)) {
-    obj[partial] = false;
     obj[implementation] = undefined;
+    obj[partial] = false;
     return;
   }
-  throw new Error("Cannot restore non-mockified object");
+  if (throwIfNotMockified) {
+    throw new Error("Cannot restore non-mockified object");
+  }
 }
 
-// const source = { x: 123 };
-// const obj = mockify(source);
-// partialOverride(obj, { x: 456 });
-// obj.x; //=
-// obj.x = 555;
-// obj.x; //=
-// source.x; //=
-
-// const fn = mockify((): number => 123);
-// fn(); //=
-
-// override(fn, () => 555);
-// fn(); //=
-
-// const x = mockify(new Map<string, number>());
-
-// console.log(x instanceof Map);
-// x.set("yo", 123);
-// x.get("yo"); //=
-// x.size; //=
-
-// override(x, new Map<string, number>());
-// x.size; //=
-
-// restore(x);
-// x.size; //=
-
-// partialOverride(x, { get: () => 555 });
-// x.set("xyz", 123);
-// x.size; //=
-// x.get("xyz"); //=
-
-// restore(x);
-// x.get("xyz"); //=
-
-// const y = mockify(Map);
-// const y1 = new y();
-// console.log(y1 instanceof Map);
-// y1.set("yo", 123);
-// y1.get("yo"); //=
-
-// override(
-//   y,
-//   class CustomMap {
-//     constructor() {
-//       console.log("yo");
-//       console.log(new.target);
-//     }
-//   },
-// );
-
-// const y2 = new y();
-// console.log(y2 instanceof Map);
-
-// restore(y);
-
-// const CustomClass = mockify(
-//   class CustomClass extends Map {
-//     doY() {
-//       console.log("y");
-//     }
-//     doX() {
-//       console.log("x");
-//     }
-//   },
-// );
-
-// override(
-//   CustomClass,
-//   class PartialCustomClass extends CustomClass {
-//     doY() {
-//       console.log("mock");
-//     }
-//   },
-// );
-
-// const customClass = new CustomClass();
-// customClass.doY();
-// customClass.doX();
-// customClass.set("yo", 123);
+export const getActual = <T extends object>(obj: T): T =>
+  isMockified(obj) ? (obj[implementation] as T) ?? obj : obj;
