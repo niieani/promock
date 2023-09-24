@@ -1,7 +1,6 @@
 use pathdiff::diff_paths;
 use serde::Deserialize;
 use std::collections::HashMap;
-use swc_ecma_utils::ExprFactory;
 
 use regex::Regex;
 use swc_core::{
@@ -267,41 +266,28 @@ impl VisitMut for TransformVisitor {
                                     span: DUMMY_SP,
                                     arg: Some(Box::new(Expr::Call(CallExpr {
                                         span: DUMMY_SP,
-                                        // callee is fn.apply(this, args):
-                                        callee: Callee::Expr(Box::new(Expr::Call(CallExpr {
+                                        callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
                                             span: DUMMY_SP,
-                                            callee: Callee::Expr(Box::new(Expr::Member(
-                                                MemberExpr {
-                                                    span: DUMMY_SP,
-                                                    obj: Box::new(Expr::Ident(
-                                                        mockified_ident.clone(),
-                                                    )),
-                                                    prop: MemberProp::Ident(Ident::new(
-                                                        "apply".into(),
-                                                        DUMMY_SP,
-                                                    )),
-                                                },
-                                            ))),
-                                            args: vec![
-                                                ExprOrSpread {
-                                                    expr: Box::new(Expr::This(ThisExpr {
-                                                        span: DUMMY_SP,
-                                                    })),
-                                                    spread: None,
-                                                },
-                                                ExprOrSpread {
-                                                    expr: Box::new(Expr::Ident(
-                                                        rest_args_ident.clone(),
-                                                    )),
-                                                    spread: None,
-                                                },
-                                            ],
-                                            type_args: None,
+                                            obj: Box::new(Expr::Ident(mockified_ident.clone())),
+                                            prop: MemberProp::Ident(Ident::new(
+                                                "apply".into(),
+                                                DUMMY_SP,
+                                            )),
                                         }))),
-                                        args: vec![ExprOrSpread {
-                                            expr: Box::new(Expr::Ident(rest_args_ident.clone())),
-                                            spread: Some(DUMMY_SP),
-                                        }],
+                                        args: vec![
+                                            ExprOrSpread {
+                                                expr: Box::new(Expr::This(ThisExpr {
+                                                    span: DUMMY_SP,
+                                                })),
+                                                spread: None,
+                                            },
+                                            ExprOrSpread {
+                                                expr: Box::new(Expr::Ident(
+                                                    rest_args_ident.clone(),
+                                                )),
+                                                spread: None,
+                                            },
+                                        ],
                                         type_args: None,
                                     }))),
                                 })],
@@ -664,7 +650,7 @@ test!(
     r#"import { mockify as mockify } from "promock";
     function _actual_example() { return {}; }
     function example(...args) {
-        return _mockified_example(...args);
+        return _mockified_example.apply(this, args);
     }
     const _mockified_example = mockify(_actual_example, example);
     export { _mockified_example as example };"#
@@ -816,7 +802,7 @@ test!(
     r#"import { mockify as mockify } from "promock";
     async function _actual_asyncFunc() { return Promise.resolve(); }
     function asyncFunc(...args) {
-        return _mockified_asyncFunc(...args);
+        return _mockified_asyncFunc.apply(this, args);
     }
     const _mockified_asyncFunc = mockify(_actual_asyncFunc, asyncFunc);
     export { _mockified_asyncFunc as asyncFunc };"#
@@ -832,7 +818,7 @@ test!(
     r#"import { mockify as mockify } from "promock";
     function* _actual_genFunc() { yield 1; }
     function genFunc(...args) {
-        return _mockified_genFunc(...args);
+        return _mockified_genFunc.apply(this, args);
     }
     const _mockified_genFunc = mockify(_actual_genFunc, genFunc);
     export { _mockified_genFunc as genFunc };"#

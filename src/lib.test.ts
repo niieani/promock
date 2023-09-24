@@ -66,7 +66,7 @@ const _mockified_fns = mockify(fns);
 const _mockified_obj = mockify(obj);
 const _mockified_obj2 = mockify(obj2);
 function exportedFns(...args) {
-    return _mockified_exportedFns(...args);
+    return _mockified_exportedFns.apply(this, args);
 }
 const _mockified_exportedFns = mockify(_actual_exportedFns, exportedFns);
 export { _mockified_exportedFns as exportedFns };
