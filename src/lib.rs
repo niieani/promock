@@ -1,17 +1,19 @@
 use pathdiff::diff_paths;
 use serde::Deserialize;
 use std::collections::HashMap;
+use swc_ecma_utils::ExprFactory;
 
 use regex::Regex;
 use swc_core::{
     common::{util::take::Take, Span, DUMMY_SP},
     ecma::{
         ast::{
-            BindingIdent, CallExpr, Callee, ClassDecl, Decl, DefaultDecl, ExportDefaultExpr,
-            ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt, FnDecl, Ident,
-            ImportDecl, ImportNamedSpecifier, ImportSpecifier, Lit, Module, ModuleDecl,
-            ModuleExportName, ModuleItem, NamedExport, Pat, Program, Stmt, Str, VarDecl,
-            VarDeclKind, VarDeclarator,
+            BindingIdent, BlockStmt, CallExpr, Callee, ClassDecl, Decl, DefaultDecl,
+            ExportDefaultExpr, ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt,
+            FnDecl, Function, Ident, ImportDecl, ImportNamedSpecifier, ImportSpecifier, Lit,
+            MemberExpr, MemberProp, Module, ModuleDecl, ModuleExportName, ModuleItem, NamedExport,
+            Param, Pat, Program, RestPat, ReturnStmt, Stmt, Str, ThisExpr, VarDecl, VarDeclKind,
+            VarDeclarator,
         },
         atoms::JsWord,
         transforms::testing::test,
@@ -100,7 +102,17 @@ impl TransformVisitor {
     }
 }
 
-fn wrap_with_mockify(span: Span, expr: Expr, config: Config) -> Expr {
+fn wrap_with_mockify(
+    span: Span,
+    expr: Expr,
+    config: Config,
+    original_reference: Option<Expr>,
+) -> Expr {
+    let argument = ExprOrSpread {
+        expr: Box::new(expr),
+        spread: None,
+    };
+
     Expr::Call(CallExpr {
         span,
         callee: Callee::Expr(Box::new(Expr::Ident(Ident {
@@ -108,10 +120,16 @@ fn wrap_with_mockify(span: Span, expr: Expr, config: Config) -> Expr {
             sym: config.import_as.clone().into(),
             optional: false,
         }))),
-        args: vec![ExprOrSpread {
-            expr: Box::new(expr),
-            spread: None,
-        }],
+        args: match original_reference {
+            None => vec![argument],
+            Some(original_reference) => vec![
+                argument,
+                ExprOrSpread {
+                    expr: Box::new(original_reference),
+                    spread: None,
+                },
+            ],
+        },
         type_args: None,
     })
 }
@@ -180,6 +198,9 @@ impl VisitMut for TransformVisitor {
         match item {
             ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => match &mut export.decl {
                 Decl::Var(var_decl) if var_decl.kind == VarDeclKind::Const => {
+                    if var_decl.declare {
+                        return;
+                    }
                     for decl in &mut var_decl.decls {
                         if let Some(init) = &mut decl.init {
                             self.mockify_used = true;
@@ -187,11 +208,15 @@ impl VisitMut for TransformVisitor {
                                 decl.span,
                                 *(*init).take(),
                                 self.config.clone(),
+                                None,
                             ));
                         }
                     }
                 }
                 Decl::Fn(fn_decl) => {
+                    if fn_decl.declare {
+                        return;
+                    }
                     self.mockify_used = true;
                     let orig_ident = fn_decl.ident.clone();
                     let export_ident = fn_decl.ident.clone();
@@ -200,17 +225,109 @@ impl VisitMut for TransformVisitor {
                         fn_decl.ident.span,
                     );
 
-                    // Drop the export, but keep the original function declaration
-                    let original_fn_decl = ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fn_decl.clone())));
-
-                    // Create mockified version
-                    let mockified_fn = wrap_with_mockify(
-                        fn_decl.function.span,
-                        Expr::Ident(orig_ident),
-                        self.config.clone(),
+                    // Rename original function to `_actual_<name>`
+                    let renamed_ident = Ident::new(
+                        format!("_actual_{}", orig_ident.sym).into(),
+                        orig_ident.span,
                     );
-                    let mockified_fn_decl = VarDeclarator {
-                        span: fn_decl.function.span,
+
+                    // Drop the export, but keep the original function declaration
+                    let renamed_fn_decl = FnDecl {
+                        ident: renamed_ident.clone(),
+                        function: fn_decl.function.clone(),
+                        declare: false,
+                    };
+                    let renamed_fn_decl_module_item =
+                        ModuleItem::Stmt(Stmt::Decl(Decl::Fn(renamed_fn_decl)));
+                    *item = renamed_fn_decl_module_item;
+
+                    // create a wrapper function that calls the mockified function:
+                    // function fn(...args) {
+                    //   return __mockified__fn.apply(this, args);
+                    // }
+                    let rest_args_ident = Ident::new("args".into(), DUMMY_SP);
+                    let wrapper_fn_decl = FnDecl {
+                        declare: false,
+                        ident: orig_ident.clone(),
+                        function: Box::new(Function {
+                            span: DUMMY_SP,
+                            params: vec![Param {
+                                span: DUMMY_SP,
+                                decorators: vec![],
+                                pat: Pat::Rest(RestPat {
+                                    span: DUMMY_SP,
+                                    dot3_token: DUMMY_SP,
+                                    arg: Box::new(Pat::Ident(rest_args_ident.clone().into())),
+                                    type_ann: None,
+                                }),
+                            }],
+                            body: Some(BlockStmt {
+                                span: DUMMY_SP,
+                                stmts: vec![Stmt::Return(ReturnStmt {
+                                    span: DUMMY_SP,
+                                    arg: Some(Box::new(Expr::Call(CallExpr {
+                                        span: DUMMY_SP,
+                                        // callee is fn.apply(this, args):
+                                        callee: Callee::Expr(Box::new(Expr::Call(CallExpr {
+                                            span: DUMMY_SP,
+                                            callee: Callee::Expr(Box::new(Expr::Member(
+                                                MemberExpr {
+                                                    span: DUMMY_SP,
+                                                    obj: Box::new(Expr::Ident(
+                                                        mockified_ident.clone(),
+                                                    )),
+                                                    prop: MemberProp::Ident(Ident::new(
+                                                        "apply".into(),
+                                                        DUMMY_SP,
+                                                    )),
+                                                },
+                                            ))),
+                                            args: vec![
+                                                ExprOrSpread {
+                                                    expr: Box::new(Expr::This(ThisExpr {
+                                                        span: DUMMY_SP,
+                                                    })),
+                                                    spread: None,
+                                                },
+                                                ExprOrSpread {
+                                                    expr: Box::new(Expr::Ident(
+                                                        rest_args_ident.clone(),
+                                                    )),
+                                                    spread: None,
+                                                },
+                                            ],
+                                            type_args: None,
+                                        }))),
+                                        args: vec![ExprOrSpread {
+                                            expr: Box::new(Expr::Ident(rest_args_ident.clone())),
+                                            spread: Some(DUMMY_SP),
+                                        }],
+                                        type_args: None,
+                                    }))),
+                                })],
+                            }),
+                            decorators: vec![],
+                            is_async: false,
+                            is_generator: false,
+                            return_type: None,
+                            type_params: None,
+                        }),
+                    };
+                    self.added_to_bottom_of_file
+                        .push(ModuleItem::Stmt(Stmt::Decl(Decl::Fn(wrapper_fn_decl))));
+
+                    // Create mockified version:
+                    // mockify(_actual_fn);
+                    let mockified_fn = wrap_with_mockify(
+                        DUMMY_SP,
+                        Expr::Ident(renamed_ident.clone()),
+                        self.config.clone(),
+                        Some(Expr::Ident(orig_ident.clone())),
+                    );
+                    // create const declaration for mockified version:
+                    // const _mockified_fn = mockify(_actual_fn);
+                    let mockified_fn_const = VarDeclarator {
+                        span: DUMMY_SP,
                         name: Pat::Ident(BindingIdent {
                             id: mockified_ident.clone(),
                             type_ann: None,
@@ -218,17 +335,25 @@ impl VisitMut for TransformVisitor {
                         init: Some(Box::new(mockified_fn)),
                         definite: false,
                     };
+                    self.added_to_bottom_of_file
+                        .push(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                            span: DUMMY_SP,
+                            kind: VarDeclKind::Const,
+                            declare: false,
+                            decls: vec![mockified_fn_const],
+                        })))));
 
                     // Add the original and mockified declarations to our stored items
-                    self.added_to_top_of_file.push(original_fn_decl);
+                    // self.added_to_top_of_file.push(renamed_fn_decl_module_item);
 
                     // Export the mockified version under the original exported name
+                    // export { __mockified__fn as fn };
                     let mockified_const_declaration =
                         ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(NamedExport {
-                            span: export.span,
+                            span: DUMMY_SP,
                             specifiers: vec![ExportSpecifier::Named(ExportNamedSpecifier {
                                 span: DUMMY_SP,
-                                orig: ModuleExportName::Ident(mockified_ident),
+                                orig: ModuleExportName::Ident(mockified_ident.clone()),
                                 exported: Some(ModuleExportName::Ident(export_ident)),
                                 is_type_only: false,
                             })],
@@ -237,18 +362,18 @@ impl VisitMut for TransformVisitor {
                             with: None,
                         }));
 
-                    let function_declaration_const =
-                        ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
-                            span: fn_decl.function.span,
-                            kind: VarDeclKind::Const,
-                            declare: false,
-                            decls: vec![mockified_fn_decl],
-                        }))));
-
                     self.added_to_bottom_of_file
                         .push(mockified_const_declaration);
 
-                    *item = function_declaration_const;
+                    // let function_declaration_const =
+                    //     ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                    //         span: fn_decl.function.span,
+                    //         kind: VarDeclKind::Const,
+                    //         declare: false,
+                    //         decls: vec![mockified_fn_decl],
+                    //     }))));
+
+                    // *item = function_declaration_const;
                 }
                 _ => {}
             },
@@ -309,6 +434,7 @@ impl VisitMut for TransformVisitor {
                                                 DUMMY_SP,
                                             )),
                                             self.config.clone(),
+                                            None,
                                         ))),
                                         definite: false,
                                     }],
@@ -361,7 +487,7 @@ impl VisitMut for TransformVisitor {
             ModuleDecl::ExportDefaultExpr(export) => {
                 self.mockify_used = true;
                 *export.expr =
-                    wrap_with_mockify(export.span, *export.expr.clone(), self.config.clone());
+                    wrap_with_mockify(export.span, *export.expr.clone(), self.config.clone(), None);
             }
 
             // we cannot simply replace the function with a const,
@@ -380,6 +506,7 @@ impl VisitMut for TransformVisitor {
                             fn_expr.function.span,
                             Expr::Fn(fn_expr.clone()),
                             self.config.clone(),
+                            None,
                         );
 
                         // Replace the exported default function declaration with a wrapped expression
@@ -404,7 +531,7 @@ impl VisitMut for TransformVisitor {
                         .push(ModuleItem::Stmt(original_stmt));
 
                     let wrapped_expr =
-                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone());
+                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone(), None);
 
                     // Replace the exported default function declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -422,6 +549,7 @@ impl VisitMut for TransformVisitor {
                             class_expr.class.span,
                             Expr::Class(class_expr.clone()),
                             self.config.clone(),
+                            None,
                         );
 
                         // Replace the exported default class declaration with a wrapped expression
@@ -446,7 +574,7 @@ impl VisitMut for TransformVisitor {
                         .push(ModuleItem::Stmt(original_stmt));
 
                     let wrapped_expr =
-                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone());
+                        wrap_with_mockify(DUMMY_SP, Expr::Ident(ident), self.config.clone(), None);
 
                     // Replace the exported default class declaration with a wrapped expression
                     *item = ModuleDecl::ExportDefaultExpr(ExportDefaultExpr {
@@ -509,7 +637,7 @@ test!(
     // Input codes
     r#"export const example = {};"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     export const example = mockify({});"#
 );
 
@@ -533,9 +661,12 @@ test!(
     // Input codes
     r#"export function example() { return {}; }"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
-    function example() { return {}; }
-    const _mockified_example = mockify(example);
+    r#"import { mockify as mockify } from "promock";
+    function _actual_example() { return {}; }
+    function example(...args) {
+        return _mockified_example(...args);
+    }
+    const _mockified_example = mockify(_actual_example, example);
     export { _mockified_example as example };"#
 );
 
@@ -547,7 +678,7 @@ test!(
     // Input codes
     r#"export default {};"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     export default mockify({});"#
 );
 
@@ -559,7 +690,7 @@ test!(
     // Input codes
     r#"export default function example() { return {}; }"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     function example() { return {}; }
     export default mockify(example);"#
 );
@@ -572,7 +703,7 @@ test!(
     // Input codes
     r#"export default class Example {}"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     class Example {}
     export default mockify(Example);"#
 );
@@ -586,7 +717,7 @@ test!(
     function B() {}
     export { A, B };"#,
     // Output codes after transformed with plugin (assuming A and B are transformed)
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     const A = () => {};
     function B() {}
     export { _mockified_A as A, _mockified_B as B };
@@ -604,7 +735,7 @@ test!(
     function B() {}
     export { A as AA, B as BB };"#,
     // Output codes after transformed with plugin (assuming A and B are transformed)
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     const A = () => {};
     function B() {}
     export { _mockified_A as AA, _mockified_B as BB };
@@ -620,7 +751,7 @@ test!(
     r#"import { A } from 'module';
     export { A as ABC };"#,
     // Output codes
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     import { A } from 'module';
     export { _mockified_A as ABC };
     const _mockified_A = mockify(A);
@@ -634,7 +765,7 @@ test!(
     // Input codes
     r#"export const nested = { example: {} };"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     export const nested = mockify({ example: {} });"#
 );
 
@@ -670,7 +801,7 @@ test!(
     r#"export default function() {}
     export const name = {};"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
+    r#"import { mockify as mockify } from "promock";
     export default mockify(function() {});
     export const name = mockify({});"#
 );
@@ -682,9 +813,12 @@ test!(
     // Input codes
     r#"export async function asyncFunc() { return Promise.resolve(); }"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
-    async function asyncFunc() { return Promise.resolve(); }
-    const _mockified_asyncFunc = mockify(asyncFunc);
+    r#"import { mockify as mockify } from "promock";
+    async function _actual_asyncFunc() { return Promise.resolve(); }
+    function asyncFunc(...args) {
+        return _mockified_asyncFunc(...args);
+    }
+    const _mockified_asyncFunc = mockify(_actual_asyncFunc, asyncFunc);
     export { _mockified_asyncFunc as asyncFunc };"#
 );
 
@@ -695,9 +829,12 @@ test!(
     // Input codes
     r#"export function* genFunc() { yield 1; }"#,
     // Output codes after transformed with plugin
-    r#"import { mockify as mockify } from "mockify";
-    function* genFunc() { yield 1; }
-    const _mockified_genFunc = mockify(genFunc);
+    r#"import { mockify as mockify } from "promock";
+    function* _actual_genFunc() { yield 1; }
+    function genFunc(...args) {
+        return _mockified_genFunc(...args);
+    }
+    const _mockified_genFunc = mockify(_actual_genFunc, genFunc);
     export { _mockified_genFunc as genFunc };"#
 );
 

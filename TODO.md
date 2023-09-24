@@ -1,7 +1,9 @@
 - [ ] jest transform, with support for chaining
   - [transformation](https://jestjs.io/docs/code-transformation)
 - [x] support "using" declarations API, by returning with Symbol.dispose from override()
-- [ ] fix internal (in-file) references to functions, e.g.
+- [ ] add support for internally mockifying default exports, and export declarations (e.g. `export { one, two }`)
+  - [ ] each of the referenced functions/classes/consts should be mockified the same way as we do for named exports
+- [x] fix internal (in-file) references to functions, e.g.
 
 ```js
 export function one() {
@@ -19,10 +21,13 @@ after transform:
 function __mockify__real_one() {
   /* content */
 }
-const __mockified__one = mockify(__mockify__real_one);
-export function one(...args) {
+// pass in 2nd argument that will be used to proxy any properties set on the wrapper function in the context of the file
+// and vice versa, any properties set on the exported mock, will be set on the wrapper function
+const __mockified__one = mockify(__mockify__real_one, one);
+function one(...args) {
   return __mockified__one(...args);
 }
+export { __mockified__one as one };
 // and then the two function would be unchanged
 function two() {
   // should use the mocked version of one

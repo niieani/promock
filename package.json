@@ -12,7 +12,8 @@
   "scripts": {
     "build": "cargo build-wasi --release",
     "prepublishOnly": "yarn build",
-    "test": "jest --no-cache"
+    "setNightly": "rustup default nightly",
+    "test": "jest --no-cache --watch"
   },
   "files": [],
   "preferUnplugged": true,

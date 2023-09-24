@@ -30,3 +30,5 @@ instance.abc; //=
 // additionally, the instances themselves can be overriden:
 override(instance, { abc: 999 });
 instance.abc; //=
+
+const fn = () => 123;

@@ -38,9 +38,6 @@ class Example extends Set {
     a = 100;
     b = 200;
 }
-function exportedFns() {
-    return 100;
-}
 export const example = mockify({
     a: 100,
     b: 200
@@ -61,11 +58,17 @@ const obj2 = {
     b: 200
 };
 export { _mockified_obj as obj, _mockified_obj2 as renamedObjExport };
-const _mockified_exportedFns = mockify(exportedFns);
+function _actual_exportedFns() {
+    return 100;
+}
 export const expression = mockify((100 + 100) * 2);
 const _mockified_fns = mockify(fns);
 const _mockified_obj = mockify(obj);
 const _mockified_obj2 = mockify(obj2);
+function exportedFns(...args) {
+    return _mockified_exportedFns(...args);
+}
+const _mockified_exportedFns = mockify(_actual_exportedFns, exportedFns);
 export { _mockified_exportedFns as exportedFns };
 "
 `);

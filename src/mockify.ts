@@ -4,6 +4,7 @@ const dispose: typeof Symbol.dispose =
   Symbol.dispose ?? Symbol("Symbol.dispose");
 
 const configuration = Symbol("configuration");
+const internalWrapperForProxy = Symbol("internalWrapperForProxy");
 
 type AnyClass = {
   prototype: object;
@@ -17,9 +18,21 @@ type Configuration<T> = {
   readonly defaultImplementation: T;
 };
 
-export const mockify = <T extends object>(obj: T): T => {
+type InternalWrapper = object | ((...args: unknown[]) => unknown);
+
+export const mockify = <T extends object>(
+  obj: T,
+  internalFnWrapper?: InternalWrapper,
+): T => {
   if (!obj || (typeof obj !== "function" && typeof obj !== "object")) {
     return obj;
+  }
+
+  // guard for the case where we try to mockify an internal wrapper function
+  // i.e. when you do `mockify(fn, wrapperFn)` and then try to do `mockify(wrapperFn)`
+  const proxy = tryGettingUnderlyingProxyFromInternalWrapper<T>(obj);
+  if (proxy) {
+    return proxy;
   }
 
   // noop if previously mockified
@@ -33,6 +46,9 @@ export const mockify = <T extends object>(obj: T): T => {
     instances: new Set(),
   };
 
+  const hasInternalFnWrapper =
+    typeof internalFnWrapper === "object" && internalFnWrapper !== null;
+
   const registry = new FinalizationRegistry<WeakRef<object>>((heldValue) => {
     conf.instances.delete(heldValue);
   });
@@ -45,7 +61,7 @@ export const mockify = <T extends object>(obj: T): T => {
     enumerable: true,
   });
 
-  return new Proxy(obj, {
+  const mockProxy = new Proxy(obj, {
     // basic:
     get(target, propertyKey, receiver) {
       if (propertyKey === configuration) {
@@ -59,6 +75,10 @@ export const mockify = <T extends object>(obj: T): T => {
       ) {
         value = (target as any)[propertyKey];
         t = target;
+      }
+      if (!value && hasInternalFnWrapper) {
+        value = (internalFnWrapper as any)[propertyKey];
+        t = internalFnWrapper;
       }
 
       // cannot use Reflect.get, because it doesn't work with private properties
@@ -76,10 +96,15 @@ export const mockify = <T extends object>(obj: T): T => {
       }
       const t = conf.implementation ?? target;
       const value = Reflect.has(t, propertyKey);
+      const wrapperValue = Boolean(
+        !value &&
+          hasInternalFnWrapper &&
+          Reflect.has(internalFnWrapper, propertyKey),
+      );
       if (conf.partial && conf.implementation) {
-        return value || Reflect.has(target, propertyKey);
+        return value || Reflect.has(target, propertyKey) || wrapperValue;
       }
-      return value;
+      return value || wrapperValue;
     },
     set(target, propertyKey, newValue, receiver) {
       if (propertyKey === configuration) {
@@ -88,6 +113,16 @@ export const mockify = <T extends object>(obj: T): T => {
         );
       }
       const t = conf.implementation ?? target;
+      if (hasInternalFnWrapper) {
+        // make sure to passthrough any set's to the internalWrapperObject
+        // for those edge cases where static properties of functions are used internally
+        Reflect.set(
+          internalFnWrapper,
+          propertyKey,
+          newValue,
+          internalFnWrapper,
+        );
+      }
       return Reflect.set(
         t,
         propertyKey,
@@ -99,10 +134,17 @@ export const mockify = <T extends object>(obj: T): T => {
     // properties:
     defineProperty(target, propertyKey, attributes) {
       const t = conf.implementation ?? target;
+      if (hasInternalFnWrapper) {
+        Reflect.defineProperty(internalFnWrapper, propertyKey, attributes);
+      }
+
       return Reflect.defineProperty(t, propertyKey, attributes);
     },
     deleteProperty(target, propertyKey) {
       const t = conf.implementation ?? target;
+      if (hasInternalFnWrapper) {
+        Reflect.deleteProperty(internalFnWrapper, propertyKey);
+      }
       return Reflect.deleteProperty(t, propertyKey);
     },
     getOwnPropertyDescriptor(target, propertyKey) {
@@ -111,10 +153,17 @@ export const mockify = <T extends object>(obj: T): T => {
           ? conf.implementation ?? target
           : target;
       const value = Reflect.getOwnPropertyDescriptor(t, propertyKey);
+      const wrapperValue = hasInternalFnWrapper
+        ? Reflect.getOwnPropertyDescriptor(internalFnWrapper, propertyKey)
+        : undefined;
       if (conf.partial && conf.implementation && t !== target) {
-        return value ?? Reflect.getOwnPropertyDescriptor(target, propertyKey);
+        return (
+          value ??
+          Reflect.getOwnPropertyDescriptor(target, propertyKey) ??
+          wrapperValue
+        );
       }
-      return value;
+      return value ?? wrapperValue;
     },
     ownKeys(target) {
       const t =
@@ -122,10 +171,17 @@ export const mockify = <T extends object>(obj: T): T => {
           ? conf.implementation ?? target
           : target;
       const value = Reflect.ownKeys(t);
+      const wrapperKeys = hasInternalFnWrapper
+        ? Reflect.ownKeys(internalFnWrapper)
+        : [];
       if (conf.partial && conf.implementation && t !== target) {
-        return Array.from(new Set([...value, ...Reflect.ownKeys(target)]));
+        return Array.from(
+          new Set([...value, ...Reflect.ownKeys(target), ...wrapperKeys]),
+        );
       }
-      return value;
+      return wrapperKeys.length > 0
+        ? Array.from(new Set([...value, ...wrapperKeys]))
+        : value;
     },
 
     // function:
@@ -172,9 +228,19 @@ export const mockify = <T extends object>(obj: T): T => {
     },
     setPrototypeOf(target, v) {
       const t = conf.implementation ?? target;
+      if (hasInternalFnWrapper) {
+        Reflect.setPrototypeOf(internalFnWrapper, v);
+      }
       return Reflect.setPrototypeOf(t, v);
     },
   });
+
+  if (internalFnWrapper) {
+    (internalFnWrapper as { [internalWrapperForProxy]: T })[
+      internalWrapperForProxy
+    ] = mockProxy;
+  }
+  return mockProxy;
 };
 
 export const isMockified = <T extends object>(
@@ -183,6 +249,13 @@ export const isMockified = <T extends object>(
   [configuration]: Configuration<T>;
 } =>
   Boolean(obj && (obj as { [configuration]: Configuration<T> })[configuration]);
+
+export const tryGettingUnderlyingProxyFromInternalWrapper = <T extends object>(
+  obj: InternalWrapper,
+): T | undefined =>
+  obj && internalWrapperForProxy in obj
+    ? (obj as { [internalWrapperForProxy]: T })[internalWrapperForProxy]
+    : undefined;
 
 function getMockConfig<T extends object>(
   obj: T | null,
