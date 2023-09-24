@@ -1,2 +1,2 @@
 #[test]
-preload = ["./src/mockify-bun2.ts"]
+preload = ["./src/mockify-bun.ts"]

@@ -4,13 +4,24 @@ import type { BunPlugin } from "bun";
 
 const myPlugin: BunPlugin = {
   name: "mockify-bun",
-  async setup(builder) {
-    const { readFileSync } = await import("node:fs");
-    // const { readFile } = await import("node:fs/promises");
-    const { extname } = await import("node:path");
-    const { transformFileSync } = await import("@swc/core");
-    // builder.onLoad({ filter: /\.[mc]?(js|ts)x?$/ }, (args) => {
-    builder.onLoad({ filter: /\.ts$/ }, (args) => {
+  setup(builder) {
+    const { readFileSync } = require("node:fs");
+    // const { readFile } = require("node:fs/promises");
+    const { extname } = require("node:path");
+    const { transformFileSync } =
+      require("@swc/core") as typeof import("@swc/core");
+    const path = require("node:path");
+    builder.onLoad({ filter: /\.[mc]?(js|ts)x?$/ }, (args) => {
+      // builder.onLoad({ filter: /\.ts$/ }, (args) => {
+
+      // TODO: use a simple regexp to detect if the file has export let/var
+      // we'd break the bindings if we were to do export
+      // due to https://github.com/oven-sh/bun/issues/5511
+      // in that case we want to fallback to using SWC to transpile that file
+      // On the other hand, we can't simply transpile everything,
+      // because source maps are currently broken too.
+      // alternatively, we could maybe use some tricks to line up
+      // the lines of the transform output to the original file?
       const extension = extname(args.path);
       const loader = (() => {
         switch (extension) {
@@ -34,11 +45,11 @@ const myPlugin: BunPlugin = {
       //   target: "bun",
       //   // allowBunRuntime: true,
       // });
-      console.log("will transform", {
-        args,
-        loader,
-        // transpiled: transpiler.transformSync(contents),
-      });
+      // console.log("will transform", {
+      //   args,
+      //   loader,
+      //   // transpiled: transpiler.transformSync(contents),
+      // });
       // return {
       //   contents: transpiler.transformSync(contents),
       //   loader,
@@ -49,6 +60,11 @@ const myPlugin: BunPlugin = {
           configFile: false,
           minify: false,
           module: { type: "nodenext" },
+          filename: args.path,
+          // source maps currently don't work in Bun:
+          sourceMaps: "inline",
+          // sourceMaps: true,
+          inlineSourcesContent: true,
           jsc: {
             parser: {
               ...(/\.[mc]?jsx?$/.test(args.path)
@@ -74,10 +90,15 @@ const myPlugin: BunPlugin = {
             experimental: {
               plugins: [
                 [
-                  "swc-mockify",
+                  // "swc-mockify",
+                  path.resolve(
+                    __dirname,
+                    "../target/wasm32-wasi/release/swc_mockify.wasm",
+                  ),
                   {
-                    basePath: __dirname,
-                    importFrom: "swc-mockify/src/mockify.ts",
+                    basePath: path.resolve(import.meta.dir, ".."),
+                    // importFrom: "swc-mockify/src/mockify.ts",
+                    importFrom: path.join(__dirname, "mockify.ts"),
                   },
                 ],
               ],
@@ -86,12 +107,10 @@ const myPlugin: BunPlugin = {
           },
         });
 
-        // if (args.path.endsWith("core/configTypes.ts")) {
-        //   // console.log({ loader });
-        //   console.log(transformed.code);
-        // }
+        // console.log(transformed.code);
         return {
           contents: transformed.code,
+          // TODO: for some reason TS loader doesn't support TypeScript, have to use "TSX"
           loader: "tsx",
         };
       } catch (error) {

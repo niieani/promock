@@ -8,10 +8,12 @@ const [{ b, goFn }, { c }] = await Promise.all([
 // const { b, goFn } = require("./resolveTest2.js");
 
 export const abc = { a: 123 };
+
 export const fn = async () => {
   const go = await goFn();
   console.log("goFn", go);
   override(go, { go: 456 });
+  console.log("stack", new Error());
   console.log("goFnOverride", go);
   return b;
 };

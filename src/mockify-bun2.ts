@@ -130,51 +130,51 @@ const myPlugin: BunPlugin = {
       // e.g. to change all the exported values in runtime
       // const internalProxy = mockify(exports);
       // partialOverride(internalProxy, mockified);
-      if (exports.updateSomething) {
-        console.log("updateSomething");
-        // console.log(Object.getOwnPropertyDescriptors(exports));
-        exports.updateSomething();
-        // console.log(Object.getOwnPropertyDescriptors(exports));
-      }
+      // if (exports.updateSomething) {
+      //   console.log("updateSomething");
+      //   // console.log(Object.getOwnPropertyDescriptors(exports));
+      //   exports.updateSomething();
+      //   // console.log(Object.getOwnPropertyDescriptors(exports));
+      // }
 
-      const output = Object.create(
-        {},
-        Object.fromEntries(
-          Object.entries(Object.getOwnPropertyDescriptors(exports)).map(
-            ([key, { value, writable, ...descriptor }]) => {
-              return [
-                key,
-                {
-                  ...descriptor,
-                  get() {
-                    console.log("get", key);
-                    return exports[key];
-                  },
-                },
-              ];
-            },
-          ),
-        ),
-      );
+      // const output = Object.create(
+      //   {},
+      //   Object.fromEntries(
+      //     Object.entries(Object.getOwnPropertyDescriptors(exports)).map(
+      //       ([key, { value, writable, ...descriptor }]) => {
+      //         return [
+      //           key,
+      //           {
+      //             ...descriptor,
+      //             get() {
+      //               console.log("get", key);
+      //               return exports[key];
+      //             },
+      //           },
+      //         ];
+      //       },
+      //     ),
+      //   ),
+      // );
 
       const internalProxy = new Proxy(exports, {
         get(target, prop) {
           console.log("get", prop);
           // if (prop === "dupa") return "dupa";
-          return mockified[prop] ?? target[prop];
+          return mockified[prop as any] ?? target[prop];
         },
-        getOwnPropertyDescriptor(target, p) {
-          console.log(
-            "getOwnPropertyDescriptor",
-            p,
-            Reflect.getOwnPropertyDescriptor(target, p),
-          );
-          return Reflect.getOwnPropertyDescriptor(target, p);
-        },
-        getPrototypeOf(target) {
-          console.log("getPrototypeOf");
-          return Reflect.getPrototypeOf(target);
-        },
+        // getOwnPropertyDescriptor(target, p) {
+        //   console.log(
+        //     "getOwnPropertyDescriptor",
+        //     p,
+        //     Reflect.getOwnPropertyDescriptor(target, p),
+        //   );
+        //   return Reflect.getOwnPropertyDescriptor(target, p);
+        // },
+        // getPrototypeOf(target) {
+        //   console.log("getPrototypeOf");
+        //   return Reflect.getPrototypeOf(target);
+        // },
       });
 
       // let count = 0;
@@ -206,9 +206,9 @@ const myPlugin: BunPlugin = {
       // it should call the getter, like here:
       // https://github.com/oven-sh/bun/blob/f2a8575e4deceb6181220bc653b91174cc059add/src/bun.js/bindings/CommonJSModuleRecord.cpp#L576-L609
       return {
-        exports: output,
+        exports: internalProxy,
         loader: "object",
-      };
+      } as const;
     }
 
     const asyncLoad = async (args: OnLoadArgs) => {
@@ -236,15 +236,14 @@ const myPlugin: BunPlugin = {
     const syncLoad = (args: OnLoadArgs) => {
       const filename = args.path.split("/").pop();
       console.log("will require()", filename, `nesting ${nesting}`);
-      const exports = require(`///${args.path}`);
+      const exports = import.meta.require(`///${args.path}`);
       console.log("sync require success", filename);
-
-      // const esm = Loader.registry.get(`///${args.path}`);
-      // const ns = Loader.getModuleNamespaceObject(esm.module);
 
       console.log(
         "loaded",
         args.path,
+        // esm,
+        // Loader.registry,
         // Module.exports(exports),
         // ns,
         // ns === (exports.__esModule ? Reflect.getPrototypeOf(exports) : exports),
@@ -259,26 +258,26 @@ const myPlugin: BunPlugin = {
     };
 
     const load = (args: OnLoadArgs) => {
-      // if (!trySyncLoading) {
-      //   return asyncLoad(args);
-      // }
-      // try {
-      return syncLoad(args);
-      // } catch (e) {
-      //   // TODO: validate that the error relates to async loading
-      //   const filename = args.path.split("/").pop();
-      //   console.log("sync require error", filename);
+      if (!trySyncLoading) {
+        return asyncLoad(args);
+      }
+      try {
+        return syncLoad(args);
+      } catch (e) {
+        // TODO: validate that the error relates to async loading
+        const filename = args.path.split("/").pop();
+        console.log("sync require error", filename);
 
-      //   Loader.registry.delete(`///${args.path}`);
+        Loader.registry.delete(`///${args.path}`);
 
-      //   if (trySyncLoading) {
-      //     trySyncLoading = false;
-      //     if (nesting > 1) {
-      //       throw e;
-      //     }
-      //   }
-      //   return asyncLoad(args);
-      // }
+        if (trySyncLoading) {
+          trySyncLoading = false;
+          if (nesting > 1) {
+            throw e;
+          }
+        }
+        return asyncLoad(args);
+      }
     };
 
     // TODO: for windows, we need to support $X:\path\path\...

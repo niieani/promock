@@ -5,10 +5,15 @@ const dispose: typeof Symbol.dispose =
 
 const configuration = Symbol("configuration");
 
+type AnyClass = {
+  prototype: object;
+} & (new (...args: unknown[]) => object);
+
 type Configuration<T> = {
   implementation?: T | Partial<T>;
   partial: boolean;
   propertyDescriptorSource: "default" | "override";
+  instances: Set<WeakRef<object>>;
   readonly defaultImplementation: T;
 };
 
@@ -25,7 +30,12 @@ export const mockify = <T extends object>(obj: T): T => {
     partial: false,
     propertyDescriptorSource: "override",
     defaultImplementation: obj,
+    instances: new Set(),
   };
+
+  const registry = new FinalizationRegistry<WeakRef<object>>((heldValue) => {
+    conf.instances.delete(heldValue);
+  });
 
   // defaultImplementation should be read-only
   Object.defineProperty(conf, "defaultImplementation", {
@@ -132,7 +142,21 @@ export const mockify = <T extends object>(obj: T): T => {
         ...args: unknown[]
       ) => object;
 
-      return Reflect.construct(t, argArray, newTarget ? t : undefined);
+      const instance = Reflect.construct(
+        t,
+        argArray,
+        newTarget ? t : undefined,
+      );
+
+      // store WeakRef to all instances so that whenever the class is overridden,
+      // all the instances should switch their prototype to the overridden version
+      const weakRef = new WeakRef(instance);
+      conf.instances.add(weakRef);
+      registry.register(instance, weakRef);
+
+      // extra bonus, we mockify the instance itself,
+      // so that internal references can be overridden as well
+      return mockify(instance);
     },
     getPrototypeOf(target) {
       const t = conf.implementation ?? target;
@@ -208,6 +232,15 @@ export function override<T extends object>(
     config.implementation = replacement;
     config.partial = false;
 
+    config.instances.forEach((weakRef) => {
+      const instance = weakRef.deref();
+      if (instance) {
+        Object.setPrototypeOf(instance, (replacement as AnyClass).prototype);
+      } else {
+        config.instances.delete(weakRef);
+      }
+    });
+
     return {
       [dispose]() {
         restore(source);
@@ -226,9 +259,7 @@ export function override<T extends object>(
  */
 export function partialOverride<T extends object>(
   source: T,
-  partialReplacement: T extends { prototype: unknown } & (new (
-    ...args: unknown[]
-  ) => unknown)
+  partialReplacement: T extends AnyClass
     ? { prototype: Partial<T["prototype"]> }
     : Partial<T>,
   throwIfNotMockified = true,
