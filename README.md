@@ -1,8 +1,8 @@
 # `promock`
 
-`promock` is simple (`<200` LOC) tool for mocking object and function exports of ESM modules (mjs).
+`promock` is simple (`<200` LOC of TypeScript) tool for mocking object and function exports of ESM modules (mjs).
 
-Fully automated mocking works with `jest`, `vitest`, `bun test`, and any other testing framework that supports transforming code.
+Fully automated mocking works with `jest`, `vitest`, `bun test`, and any other testing framework that supports transforming code on the fly.
 
 You could also use `promock` manually, as a Dependency Injection tool.
 
@@ -28,6 +28,9 @@ The name `promock` is a portmanteau of "Proxy" and "mock", as it uses JS Proxies
 Even though ES Modules became ratified in 2015, the most prominent JavaScript testing framework, `jest`, still [doesn't fully support mocking ESM exports](https://github.com/jestjs/jest/issues/9430). Even `vitest`, the hot new testing framework, despite making a lot of progress on the front, still has [open issues](https://github.com/vitest-dev/vitest/issues/3046) related mocking ES modules, and the user experience is far from ideal, requiring the user to know complex APIs, such as [`vi.hoisted`](https://vitest.dev/api/vi.html#vi-hoisted).
 
 This is a major problem for developers, as ESM packages are becoming ubiquitous, with more and more maintainers opting to [only support ESM](https://gist.github.com/sindresorhus/a39789f98801d908bbc7ff3ecc99d99c).
+
+TODO: in majority of cases mocking entire modules is not necessary, and it is hard when you only want to mock a single export.
+Certain things are also impossible, such as changing what functions/classes are called internally, by the unmocked code, so it's hard to mix-and-match, even when using workaround such as jest.requireActual().
 
 Enter `promock`:
 

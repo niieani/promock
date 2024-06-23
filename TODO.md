@@ -49,3 +49,10 @@ If we want to be able to override properties in instances created internally,
 we could keep track of all constructions internally in mockify() using a WeakMap,
 and maybe with some clever tricks, like returning `mockify(this)` from the constructor,
 then whenever the class is overridden, we swap the prototype of the instance with the mock to make it work?
+
+--
+
+Fixes annoying issues like:
+
+- [43081](https://github.com/microsoft/TypeScript/issues/43081)
+- [tools like TS don't support Code as Config paradigm](https://github.com/microsoft/TypeScript/pull/58025)

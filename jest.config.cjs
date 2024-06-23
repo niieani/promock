@@ -4,6 +4,8 @@ module.exports = {
   rootDir: __dirname,
   moduleNameMapper: {
     promock$: "<rootDir>/src/mockify.ts",
+    // remove .js suffix to resolve the .ts file correctly
+    "(.+)\\.js": "$1",
   },
   transform: {
     ".+\\.([tj]sx?)$": [

@@ -9,13 +9,13 @@ use swc_core::{
         ast::{
             BindingIdent, BlockStmt, CallExpr, Callee, ClassDecl, Decl, DefaultDecl,
             ExportDefaultExpr, ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt,
-            FnDecl, Function, Ident, ImportDecl, ImportNamedSpecifier, ImportSpecifier, Lit,
-            MemberExpr, MemberProp, Module, ModuleDecl, ModuleExportName, ModuleItem, NamedExport,
-            Param, Pat, Program, RestPat, ReturnStmt, Stmt, Str, ThisExpr, VarDecl, VarDeclKind,
-            VarDeclarator,
+            FnDecl, Function, Ident, ImportDecl, ImportNamedSpecifier, ImportPhase,
+            ImportSpecifier, Lit, MemberExpr, MemberProp, Module, ModuleDecl, ModuleExportName,
+            ModuleItem, NamedExport, Param, Pat, Program, RestPat, ReturnStmt, Stmt, Str, ThisExpr,
+            VarDecl, VarDeclKind, VarDeclarator,
         },
         atoms::JsWord,
-        transforms::testing::test,
+        transforms::testing::test_inline,
         visit::{as_folder, FoldWith, VisitMut, VisitMutWith},
     },
     plugin::{
@@ -164,6 +164,7 @@ impl VisitMut for TransformVisitor {
             }),
             type_only: false,
             with: None,
+            phase: ImportPhase::Evaluation,
         }));
 
         // Prepend our stored statements
@@ -616,7 +617,7 @@ pub fn process_transform(program: Program, metadata: TransformPluginProgramMetad
 }
 
 // Testing exported const
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     export_const,
@@ -640,7 +641,7 @@ test!(
 // const _mockified_$exampleFn = mockify($exampleFn);
 // 3. export the mockified version under the original exported name
 // export { _mockified_$exampleFn as $exampleFn };
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     export_function,
@@ -657,7 +658,7 @@ test!(
 );
 
 // Testing default exports
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     default_export,
@@ -669,7 +670,7 @@ test!(
 );
 
 // Testing default exported functions
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     default_export_function,
@@ -682,7 +683,7 @@ test!(
 );
 
 // Testing default exported classes
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     default_export_class,
@@ -694,7 +695,7 @@ test!(
     export default mockify(Example);"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     separate_export_declaration,
@@ -712,7 +713,7 @@ test!(
     "#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     separate_export_declaration_with_rename,
@@ -729,7 +730,7 @@ test!(
     const _mockified_B = mockify(B);
     "#
 );
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     export_imported_values,
@@ -744,7 +745,7 @@ test!(
     "#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     complex_object_exports,
@@ -756,7 +757,7 @@ test!(
 );
 
 // Do not add imports if mockify is not used
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     no_added_imports,
@@ -767,7 +768,7 @@ test!(
 );
 
 // Does not change code if "use __do_not_mockify__" is in the file header
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     do_not_mockify,
@@ -779,7 +780,7 @@ test!(
     export const example = {};"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     mixed_exports,
@@ -792,7 +793,7 @@ test!(
     export const name = mockify({});"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     async_function,
@@ -808,7 +809,7 @@ test!(
     export { _mockified_asyncFunc as asyncFunc };"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     generator_function,
@@ -824,7 +825,7 @@ test!(
     export { _mockified_genFunc as genFunc };"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     dynamic_import,
@@ -834,7 +835,7 @@ test!(
     r#"const module = import('./module');"#
 );
 
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(None)),
     re_export,
@@ -845,7 +846,7 @@ test!(
 );
 
 // Testing exported const
-test!(
+test_inline!(
     Default::default(),
     |_| as_folder(TransformVisitor::new(Some(Config {
         import_from: "custom-mockify".into(),

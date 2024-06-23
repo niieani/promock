@@ -1,4 +1,4 @@
-import { mockify, override } from "./mockify";
+import { mockify, override } from "./mockify.js";
 
 class ActualSomeClass {
   get abc() {

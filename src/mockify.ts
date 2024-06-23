@@ -6,9 +6,10 @@ const dispose: typeof Symbol.dispose =
 const configuration = Symbol("configuration");
 const internalWrapperForProxy = Symbol("internalWrapperForProxy");
 
-type AnyClass = {
-  prototype: object;
-} & (new (...args: unknown[]) => object);
+type AnyClass = abstract new (...args: unknown[]) => object;
+type PartialClass<T extends AnyClass> = abstract new (
+  ...args: unknown[]
+) => Partial<InstanceType<T>>;
 
 type Configuration<T> = {
   implementation?: T | Partial<T>;
@@ -273,6 +274,7 @@ function getMockConfig<T extends object>(
   if (throwIfNotMockified) {
     throw new Error("Cannot get configuration of non-mockified object");
   }
+  return undefined;
 }
 
 const nothingToDispose = { [dispose]() {} };
@@ -332,15 +334,13 @@ export function override<T extends object>(
  */
 export function partialOverride<T extends object>(
   source: T,
-  partialReplacement: T extends AnyClass
-    ? { prototype: Partial<T["prototype"]> }
-    : Partial<T>,
+  partialReplacement: T extends AnyClass ? PartialClass<T> : Partial<T>,
   throwIfNotMockified = true,
 ): { [dispose](): void } {
   const config = getMockConfig(source, throwIfNotMockified);
   if (config) {
     correctExtendedClass(partialReplacement, source, config);
-    config.implementation = partialReplacement;
+    config.implementation = partialReplacement as Partial<T>;
     config.partial = true;
 
     return {

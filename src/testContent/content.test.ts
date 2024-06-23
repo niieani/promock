@@ -4,9 +4,9 @@ import MockClass, {
   instance,
   renamedObjExport,
   expression,
-} from "./content";
-import defaultFn from "./defaultFn";
-import { isMockified, override, partialOverride, restore } from "../mockify";
+} from "./content.js";
+import defaultFn from "./defaultFn.js";
+import { isMockified, override, partialOverride, restore } from "../mockify.js";
 import { afterEach, expect, describe, it } from "@jest/globals";
 
 describe("validate", () => {
