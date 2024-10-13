@@ -38,6 +38,7 @@ const myPlugin: BunPlugin = {
           case ".tsx":
             return "tsx";
         }
+        return undefined;
       })();
       // const contents = readFileSync(args.path, "utf8");
       // const transpiler = new Bun.Transpiler({

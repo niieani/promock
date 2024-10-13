@@ -1,7 +1,29 @@
-/target
-^target/
-target
-node_modules/
-.yarn/cache
-.swc/
 .DS_Store
+node_modules
+/.config/.cache/
+/build/
+# typescript:
+/tsconfig.options.json
+/tsconfig.json
+/packages/*/tsconfig.json
+# eslint:
+/eslint.config.js
+# moon:
+/.moon/
+/.moon/cache
+/.moon/docker
+/.moon/toolchain.yml
+/.moon/workspace.yml
+/.moon/tasks.yml
+# moonCi:
+/moon.yml
+# vscode:
+/.vscode/settings.json
+# autolink:
+/jest.config.cjs
+# custom ignore patterns:
+.env
+.env.*
+.swc
+packages/promock-swc/target/
+!packages/promock-swc/target/wasm32-wasi/release/promock_swc.wasm

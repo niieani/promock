@@ -1,0 +1,66 @@
+name: Release Please
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skipNpmRelease:
+        description: Skip NPM release
+        type: boolean
+        required: false
+        default: false
+env:
+  GIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+permissions:
+  contents: write
+  pull-requests: write
+  attestations: write
+jobs:
+  release-please:
+    name: Get packages to release & update release-please PRs
+    runs-on: ubuntu-latest
+    outputs:
+      releases_pending: ${{ steps.release-please.outputs.releases_pending }}
+      paths_to_release: ${{ steps.release-please.outputs.paths_to_release }}
+    steps:
+      - id: release-please
+        name: "Release Please: list candidate releases"
+        uses: niieani/release-please-action@condu
+        with:
+          config-file: .config/release-please/config.json
+          manifest-file: .config/release-please/manifest.json
+          only: list-candidate-releases
+      - id: release-please-prs
+        name: "Release Please: update PRs"
+        uses: niieani/release-please-action@condu
+        with:
+          config-file: .config/release-please/config.json
+          manifest-file: .config/release-please/manifest.json
+          only: update-pull-requests
+  release:
+    name: Release packages to NPM
+    runs-on: ubuntu-latest
+    needs:
+      - release-please
+    if: ${{ needs.release-please.outputs.releases_pending == 'true' }}
+    steps:
+      - name: Git Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Repository setup
+        uses: ./.github/actions/moon-ci-setup
+      - name: Release packages to NPM
+        if: ${{ !inputs.skipNpmRelease }}
+        run: pnpm run condu release --ci --npm-tag=latest ./${{ join( fromJSON(
+          needs.release-please.outputs.paths_to_release ), ' ./' ) }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create Github Releases
+        id: release-please
+        uses: niieani/release-please-action@condu
+        with:
+          config-file: .config/release-please/config.json
+          manifest-file: .config/release-please/manifest.json
+          only: create-github-releases

@@ -794,6 +794,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "promock-swc"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "pathdiff",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_regex",
+ "swc_core",
+ "swc_ecma_utils",
+]
+
+[[package]]
 name = "psm"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1217,20 +1231,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8b945e45b417b125a8ec51f1b7df2f8df7920367700d1f98aedd21e5735f8b2"
 dependencies = [
  "atty",
-]
-
-[[package]]
-name = "swc-mockify"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "pathdiff",
- "regex",
- "serde",
- "serde_json",
- "serde_regex",
- "swc_core",
- "swc_ecma_utils",
 ]
 
 [[package]]

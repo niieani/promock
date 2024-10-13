@@ -1,0 +1,12 @@
+{
+  "name": "promock",
+  "version": "0.0.0",
+  "sideEffects": false,
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.7.35"
+  }
+}

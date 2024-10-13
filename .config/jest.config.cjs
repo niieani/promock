@@ -3,7 +3,7 @@
 module.exports = {
   rootDir: __dirname,
   moduleNameMapper: {
-    promock$: "<rootDir>/src/mockify.ts",
+    promock$: "<rootDir>/packages/promock/mockify.ts",
     // remove .js suffix to resolve the .ts file correctly
     "(.+)\\.js": "$1",
   },
@@ -16,7 +16,7 @@ module.exports = {
             plugins: [
               [
                 require.resolve(
-                  "./target/wasm32-wasi/release/swc_mockify.wasm",
+                  "./packages/promock-swc/target/wasm32-wasi/release/swc_mockify.wasm",
                 ),
                 { basePath: __dirname },
               ],

@@ -70,7 +70,7 @@ const CustomClass = mockify(
 override(
   CustomClass,
   class PartialCustomClass extends CustomClass {
-    doY() {
+    override doY() {
       console.log("mock");
     }
   },

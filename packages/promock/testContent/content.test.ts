@@ -50,8 +50,8 @@ describe("validate", () => {
     override(
       MockClass,
       class Alternative extends MockClass {
-        a = 200;
-        b = 300;
+        override a = 200;
+        override b = 300;
       },
     );
 

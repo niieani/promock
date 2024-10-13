@@ -17,7 +17,7 @@ instance instanceof SomeClass; // true
 instance.abc; //=
 
 const overriden = class extends SomeClass {
-  get abc() {
+  override get abc() {
     return 456;
   }
 };
