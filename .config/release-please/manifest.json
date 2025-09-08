@@ -1,4 +1,4 @@
 {
-  "packages/promock-swc": "0.0.0",
-  "packages/promock": "0.0.0"
+  "packages/promock": "0.0.0",
+  "packages/swc-plugin-promock": "0.0.0"
 }

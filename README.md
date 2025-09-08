@@ -111,14 +111,14 @@ This automation reduces manual intervention and ensures that your exports are al
 
 ## API Reference
 
-- `isMockified(value: T): boolean`: Checks if the given export is mockified.
-
 - `override(value: T, impl: T): void`: Completely overrides the mockified export with a new implementation.
 
 - `partialOverride(value: T, impl: Partial<T>): void`: Partially overrides the mockified export, only replacing specified properties or methods.
 
 - `restore(value: T): void`: Restores the mockified export to its original state.
 
-- `getActual(value: T): T`: Restores the mockified export to its original state.
+- `isMockified(value: T): boolean`: Checks if the given export is mockified.
+
+- `getActual(value: T): T`: Returns the original version of the export.
 
 - `mockify(value: T): T`: Converts an object or function into a mockified version. Used internally by the SWC plugin.

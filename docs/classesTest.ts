@@ -1,4 +1,4 @@
-import { mockify, override } from "./mockify.js";
+import { mockify, override } from "../packages/promock/main.js";
 
 class ActualSomeClass {
   get abc() {

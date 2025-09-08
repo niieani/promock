@@ -22,12 +22,7 @@ describe("transpile", () => {
         },
         experimental: {
           plugins: [
-            [
-              require.resolve("../target/wasm32-wasi/release/swc_mockify.wasm"),
-              {
-                basePath: __dirname,
-              },
-            ],
+            [require.resolve("swc-plugin-promock"), { basePath: __dirname }],
           ],
         },
       },

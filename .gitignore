@@ -2,10 +2,12 @@
 node_modules
 /.config/.cache/
 /build/
+# pnpm:
+/.npmrc
 # typescript:
 /tsconfig.options.json
 /tsconfig.json
-/packages/*/tsconfig.json
+tsconfig.json
 # eslint:
 /eslint.config.js
 # moon:
@@ -16,6 +18,7 @@ node_modules
 /.moon/workspace.yml
 /.moon/tasks.yml
 # moonCi:
+moon.yml
 /moon.yml
 # vscode:
 /.vscode/settings.json
@@ -25,5 +28,4 @@ node_modules
 .env
 .env.*
 .swc
-packages/promock-swc/target/
-!packages/promock-swc/target/wasm32-wasi/release/promock_swc.wasm
+packages/swc-plugin-promock/target/

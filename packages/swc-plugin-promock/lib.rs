@@ -4,12 +4,12 @@ use std::collections::HashMap;
 
 use regex::Regex;
 use swc_core::{
-    common::{util::take::Take, Span, DUMMY_SP},
+    common::{util::take::Take, Span, SyntaxContext, DUMMY_SP},
     ecma::{
         ast::{
             BindingIdent, BlockStmt, CallExpr, Callee, ClassDecl, Decl, DefaultDecl,
             ExportDefaultExpr, ExportNamedSpecifier, ExportSpecifier, Expr, ExprOrSpread, ExprStmt,
-            FnDecl, Function, Ident, ImportDecl, ImportNamedSpecifier, ImportPhase,
+            FnDecl, Function, Ident, IdentName, ImportDecl, ImportNamedSpecifier, ImportPhase,
             ImportSpecifier, Lit, MemberExpr, MemberProp, Module, ModuleDecl, ModuleExportName,
             ModuleItem, NamedExport, Param, Pat, Program, RestPat, ReturnStmt, Stmt, Str, ThisExpr,
             VarDecl, VarDeclKind, VarDeclarator,
@@ -118,6 +118,7 @@ fn wrap_with_mockify(
             span: DUMMY_SP,
             sym: config.import_as.clone().into(),
             optional: false,
+            ctxt: SyntaxContext::empty(),
         }))),
         args: match original_reference {
             None => vec![argument],
@@ -130,6 +131,7 @@ fn wrap_with_mockify(
             ],
         },
         type_args: None,
+        ctxt: SyntaxContext::empty(),
     })
 }
 
@@ -150,10 +152,15 @@ impl VisitMut for TransformVisitor {
             span: DUMMY_SP,
             specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
                 span: DUMMY_SP,
-                local: Ident::new(import_config.import_as.clone().into(), DUMMY_SP),
+                local: Ident::new(
+                    import_config.import_as.clone().into(),
+                    DUMMY_SP,
+                    Default::default(),
+                ),
                 imported: Some(ModuleExportName::Ident(Ident::new(
                     import_config.export_name.into(),
                     DUMMY_SP,
+                    Default::default(),
                 ))),
                 is_type_only: false,
             })],
@@ -223,12 +230,14 @@ impl VisitMut for TransformVisitor {
                     let mockified_ident = Ident::new(
                         format!("_mockified_{}", orig_ident.sym).into(),
                         fn_decl.ident.span,
+                        fn_decl.ident.ctxt,
                     );
 
                     // Rename original function to `_actual_<name>`
                     let renamed_ident = Ident::new(
                         format!("_actual_{}", orig_ident.sym).into(),
                         orig_ident.span,
+                        orig_ident.ctxt,
                     );
 
                     // Drop the export, but keep the original function declaration
@@ -245,7 +254,7 @@ impl VisitMut for TransformVisitor {
                     // function fn(...args) {
                     //   return __mockified__fn.apply(this, args);
                     // }
-                    let rest_args_ident = Ident::new("args".into(), DUMMY_SP);
+                    let rest_args_ident = Ident::new("args".into(), DUMMY_SP, Default::default());
                     let wrapper_fn_decl = FnDecl {
                         declare: false,
                         ident: orig_ident.clone(),
@@ -270,7 +279,7 @@ impl VisitMut for TransformVisitor {
                                         callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
                                             span: DUMMY_SP,
                                             obj: Box::new(Expr::Ident(mockified_ident.clone())),
-                                            prop: MemberProp::Ident(Ident::new(
+                                            prop: MemberProp::Ident(IdentName::new(
                                                 "apply".into(),
                                                 DUMMY_SP,
                                             )),
@@ -290,14 +299,17 @@ impl VisitMut for TransformVisitor {
                                             },
                                         ],
                                         type_args: None,
+                                        ctxt: SyntaxContext::empty(),
                                     }))),
                                 })],
+                                ctxt: SyntaxContext::empty(),
                             }),
                             decorators: vec![],
                             is_async: false,
                             is_generator: false,
                             return_type: None,
                             type_params: None,
+                            ctxt: SyntaxContext::empty(),
                         }),
                     };
                     self.added_to_bottom_of_file
@@ -328,6 +340,7 @@ impl VisitMut for TransformVisitor {
                             kind: VarDeclKind::Const,
                             declare: false,
                             decls: vec![mockified_fn_const],
+                            ctxt: SyntaxContext::empty(),
                         })))));
 
                     // Add the original and mockified declarations to our stored items
@@ -397,8 +410,11 @@ impl VisitMut for TransformVisitor {
 
                             let formatted_ident = format!("_mockified_{}", original_ident_sym);
                             // Construct the mockified name, e.g., _mockified_A
-                            let mockified_ident =
-                                Ident::new(formatted_ident.clone().into(), DUMMY_SP);
+                            let mockified_ident = Ident::new(
+                                formatted_ident.clone().into(),
+                                DUMMY_SP,
+                                Default::default(),
+                            );
 
                             // If this identifier hasn't been mockified yet, add it to the added Vec
                             if !self.mockified_identifiers.contains_key(&original_ident_sym) {
@@ -408,6 +424,7 @@ impl VisitMut for TransformVisitor {
                                     span: DUMMY_SP,
                                     kind: VarDeclKind::Const,
                                     declare: false,
+                                    ctxt: SyntaxContext::empty(),
                                     decls: vec![VarDeclarator {
                                         span: DUMMY_SP,
                                         name: Pat::Ident(BindingIdent {
@@ -419,6 +436,7 @@ impl VisitMut for TransformVisitor {
                                             Expr::Ident(Ident::new(
                                                 original_ident_sym.clone(),
                                                 DUMMY_SP,
+                                                Default::default(),
                                             )),
                                             self.config.clone(),
                                             None,

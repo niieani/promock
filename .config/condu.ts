@@ -1,15 +1,10 @@
-import { configure } from "condu/configure.js";
-import { monorepo } from "@condu-preset/monorepo";
+import { configure } from "condu";
+import { monorepo } from "@condu-preset/monorepo/monorepo.js";
 
-export default configure((pkg) => ({
-  ...monorepo({
-    pkg,
+export default configure(
+  monorepo({
     gitignore: {
-      ignore: [
-        ".swc",
-        "packages/promock-swc/target/",
-        "!packages/promock-swc/target/wasm32-wasi/release/promock_swc.wasm",
-      ],
+      ignore: [".swc", "packages/swc-plugin-promock/target/"],
     },
     moon: {
       toolchain: {
@@ -18,5 +13,12 @@ export default configure((pkg) => ({
         },
       },
     },
+    vscode: {
+      suggestedSettings: {
+        "rust-analyzer.linkedProjects": [
+          "./packages/swc-plugin-promock/Cargo.toml",
+        ],
+      },
+    },
   }),
-}));
+);

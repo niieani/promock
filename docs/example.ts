@@ -1,4 +1,9 @@
-import { mockify, override, partialOverride, restore } from "./mockify.js";
+import {
+  mockify,
+  override,
+  partialOverride,
+  restore,
+} from "../packages/promock/main.js";
 
 const source = { x: 123 };
 const obj = mockify(source);

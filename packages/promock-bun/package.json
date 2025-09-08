@@ -1,6 +1,7 @@
 {
-  "name": "promock",
+  "name": "promock-bun",
   "version": "0.0.0",
+  "private": true,
   "sideEffects": false,
   "type": "module",
   "publishConfig": {

@@ -1,9 +1,32 @@
-- [ ] jest transform, with support for chaining
-  - [transformation](https://jestjs.io/docs/code-transformation)
 - [x] support "using" declarations API, by returning with Symbol.dispose from override()
 - [ ] add support for internally mockifying default exports, and export declarations (e.g. `export { one, two }`)
   - [ ] each of the referenced functions/classes/consts should be mockified the same way as we do for named exports
 - [x] fix internal (in-file) references to functions, e.g.
+- [ ] jest transform, with support for chaining
+  - [transformation](https://jestjs.io/docs/code-transformation)
+- [ ] ability to mockify primitives and non-const exports by changing every export to `export let` and exposing a new function:
+
+```js
+export const __originalValues__ = {};
+
+export function __mockify__(exportName, newValue) {
+  if (exportName === "abc") {
+    if (!"abc" in __originalValues__) __originalValues__["abc"] = abc;
+    abc = newValue;
+    return;
+  }
+  // etc.
+}
+
+export function __restore__(exportName) {
+  if (exportName === "abc" && "abc" in __originalValues__) {
+    abc = __originalValues__["abc"];
+    delete __originalValues__["abc"];
+    return;
+  }
+  // etc.
+}
+```
 
 ```js
 export function one() {
